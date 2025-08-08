@@ -1,30 +1,34 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
+﻿using api_itm.Models;
+using IdentityModel.Client;
+using System;
+using System.Diagnostics;
+using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http;
-using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.IdentityModel.Tokens.Jwt;
+using static api_itm.Program;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
 namespace api_itm
 {
     public partial class ControlCredentiale : UserControl
     {
         private readonly AppDbContext _db;
+        public Button LoginButton => btnLogin;
+
+        private System.Windows.Forms.Timer tokenRefreshTimer;
+
 
         public ControlCredentiale(AppDbContext db)
         {
             InitializeComponent();
-            _db = db;
+            _db = db; 
+            this.Load += ControlCredentials_Load;
         }
 
         private void lbIntoducereCredentiale_Click(object sender, EventArgs e)
         {
-            // Optional click event logic
+
         }
 
         private async void btnLogin_Click(object sender, EventArgs e)
@@ -42,15 +46,14 @@ namespace api_itm
             if (token != null)
             {
                 MessageBox.Show("Login successful!");
+                var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+                if (jwt.Payload.Exp.HasValue)
+                {
+                    var exp = DateTimeOffset.FromUnixTimeSeconds(jwt.Payload.Exp.Value).ToLocalTime();
+                    Debug.WriteLine($"Token expires at: {exp}");
+                    StartTokenRefreshTimer(SessionState.Tokens.Expiration);
 
-                // Optional: parse token to read claims
-                var handler = new JwtSecurityTokenHandler();
-                var jwt = handler.ReadJwtToken(token);
-                string exp = jwt.Payload.Exp.HasValue
-                    ? DateTimeOffset.FromUnixTimeSeconds(jwt.Payload.Exp.Value).ToLocalTime().ToString()
-                    : "unknown";
-
-                MessageBox.Show($"Token expires at: {exp}");
+                }
             }
             else
             {
@@ -58,50 +61,121 @@ namespace api_itm
             }
         }
 
+        private void StartTokenRefreshTimer(DateTime expirationTime)
+        {
+            int millisecondsUntilRefresh = (int)(expirationTime - DateTime.UtcNow - TimeSpan.FromSeconds(60)).TotalMilliseconds;
+
+            if (millisecondsUntilRefresh <= 0)
+                millisecondsUntilRefresh = 1000; // fallback to refresh in 1 sec if already near expiration
+
+            tokenRefreshTimer = new System.Windows.Forms.Timer();
+            tokenRefreshTimer.Interval = millisecondsUntilRefresh;
+            tokenRefreshTimer.Tick += async (s, e) =>
+            {
+                tokenRefreshTimer.Stop(); // stop current timer to avoid overlaps
+                await RefreshTokenAsync(); // call your refresh method
+            };
+            tokenRefreshTimer.Start();
+        }
+
         private async Task<string> LoginAsync(string username, string password)
         {
             using var client = new HttpClient();
 
-            var values = new Dictionary<string, string>
+            // Discover OpenID endpoints
+            var disco = await client.GetDiscoveryDocumentAsync("https://sso.dev.inspectiamuncii.org/realms/API");
+            if (disco.IsError)
             {
-                { "grant_type", "password" },
-                { "client_id", "reges-api" },
-                { "client_secret", "FjtrYvDTGZKiyHGdSWymOvxhqifTJ7Em" },
-                { "username", username },
-                { "password", password }
+                MessageBox.Show($"Discovery failed: {disco.Error}");
+                return null;
+            }
+
+            // Ask for access and refresh token
+            var response = await client.RequestPasswordTokenAsync(new PasswordTokenRequest
+            {
+                Address = disco.TokenEndpoint,
+                ClientId = "reges-api",
+                ClientSecret = "FjtrYvDTGZKiyHGdSWymOvxhqifTJ7Em",
+                UserName = username,
+                Password = password,
+                Scope = "openid profile"
+            });
+
+            if (response.IsError)
+            {
+                MessageBox.Show($"Token request failed: {response.Error}");
+                return null;
+            }
+
+            // Store the token for reuse
+            SessionState.Tokens = new TokenStore
+            {
+                AccessToken = response.AccessToken,
+                RefreshToken = response.RefreshToken,
+                Expiration = DateTime.UtcNow.AddSeconds(response.ExpiresIn)
             };
 
-            var content = new FormUrlEncodedContent(values);
-            string tokenUrl = "https://sso.dev.inspectiamuncii.org/realms/API/protocol/openid-connect/token";
+            Properties.Settings.Default.SavedCredentialsUser = username;
+            Properties.Settings.Default.SavedCredentialsPassword = password;
+            Properties.Settings.Default.Save();
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await client.PostAsync(tokenUrl, content);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error contacting server: {ex.Message}");
-                return null;
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                MessageBox.Show($"Login failed: {response.StatusCode}");
-                return null;
-            }
-
-            var responseBody = await response.Content.ReadAsStringAsync();
-            var tokenResponse = JsonSerializer.Deserialize<TokenResponse>(responseBody);
-            return tokenResponse?.access_token;
+            return response.AccessToken;
         }
 
-        private class TokenResponse
+        private async Task RefreshTokenAsync()
         {
-            public string access_token { get; set; }
-            public int expires_in { get; set; }
-            public string refresh_token { get; set; }
-            public string token_type { get; set; }
+            if (SessionState.Tokens == null || string.IsNullOrEmpty(SessionState.Tokens.RefreshToken))
+            {
+                Debug.WriteLine("No refresh token available.");
+                return;
+            }
+
+            using var client = new HttpClient();
+            var disco = await client.GetDiscoveryDocumentAsync("https://sso.dev.inspectiamuncii.org/realms/API");
+
+            if (disco.IsError)
+            {
+                Debug.WriteLine($"Discovery error: {disco.Error}");
+                return;
+            }
+
+            var refreshResponse = await client.RequestRefreshTokenAsync(new RefreshTokenRequest
+            {
+                Address = disco.TokenEndpoint,
+                ClientId = "reges-api",
+                ClientSecret = "FjtrYvDTGZKiyHGdSWymOvxhqifTJ7Em",
+                RefreshToken = SessionState.Tokens.RefreshToken
+            });
+
+            if (refreshResponse.IsError)
+            {
+                Debug.WriteLine($"Refresh failed: {refreshResponse.Error}");
+                return;
+            }
+
+            SessionState.Tokens = new TokenStore
+            {
+                AccessToken = refreshResponse.AccessToken,
+                RefreshToken = refreshResponse.RefreshToken,
+                Expiration = DateTime.UtcNow.AddSeconds(refreshResponse.ExpiresIn)
+            };
+
+            Debug.WriteLine("Token refreshed successfully.");
+
+            // Restart timer for next refresh
+            StartTokenRefreshTimer(SessionState.Tokens.Expiration);
         }
+
+
+        private void txtCredentialsUser_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void ControlCredentials_Load(object sender, EventArgs e)
+        {
+            txtCredentialsUser.Text = Properties.Settings.Default.SavedCredentialsUser;
+            txtCredentialsPassword.Text = Properties.Settings.Default.SavedCredentialsPassword;
+        } 
     }
 }

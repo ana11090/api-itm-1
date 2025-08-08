@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using api_itm.Models;
+using System.Diagnostics;
 
 namespace api_itm
 {
@@ -10,6 +11,7 @@ namespace api_itm
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {
+
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

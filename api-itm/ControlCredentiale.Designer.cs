@@ -38,14 +38,15 @@
             // 
             // txtCredentialsUser
             // 
-            txtCredentialsUser.Location = new Point(208, 60);
+            txtCredentialsUser.Location = new Point(185, 60);
             txtCredentialsUser.Name = "txtCredentialsUser";
             txtCredentialsUser.Size = new Size(288, 27);
             txtCredentialsUser.TabIndex = 0;
+            txtCredentialsUser.TextChanged += txtCredentialsUser_TextChanged;
             // 
             // txtCredentialsPassword
             // 
-            txtCredentialsPassword.Location = new Point(208, 107);
+            txtCredentialsPassword.Location = new Point(185, 103);
             txtCredentialsPassword.Name = "txtCredentialsPassword";
             txtCredentialsPassword.Size = new Size(288, 27);
             txtCredentialsPassword.TabIndex = 1;
@@ -53,7 +54,7 @@
             // lbUsername
             // 
             lbUsername.AutoSize = true;
-            lbUsername.Location = new Point(132, 63);
+            lbUsername.Location = new Point(103, 63);
             lbUsername.Name = "lbUsername";
             lbUsername.Size = new Size(38, 20);
             lbUsername.TabIndex = 2;
@@ -62,7 +63,7 @@
             // lbPassword
             // 
             lbPassword.AutoSize = true;
-            lbPassword.Location = new Point(132, 114);
+            lbPassword.Location = new Point(103, 110);
             lbPassword.Name = "lbPassword";
             lbPassword.Size = new Size(50, 20);
             lbPassword.TabIndex = 3;
@@ -79,7 +80,7 @@
             // 
             // btnLogin
             // 
-            btnLogin.Location = new Point(293, 153);
+            btnLogin.Location = new Point(262, 159);
             btnLogin.Name = "btnLogin";
             btnLogin.Size = new Size(125, 29);
             btnLogin.TabIndex = 5;
@@ -99,6 +100,7 @@
             Controls.Add(txtCredentialsUser);
             Name = "ControlCredentiale";
             Size = new Size(580, 246);
+            Load += ControlCredentials_Load;
             ResumeLayout(false);
             PerformLayout();
         }

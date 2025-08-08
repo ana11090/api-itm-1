@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Diagnostics;
 
 namespace api_itm
 {
@@ -18,6 +19,7 @@ namespace api_itm
             InitializeComponent();
             _db = db;
             this.Load += FormAddCredentials_Load;
+
         }
 
         private void FormAddCredentials_Load(object sender, EventArgs e)
@@ -27,9 +29,14 @@ namespace api_itm
             int x = (this.ClientSize.Width - credentialControl.Width) / 2;
             int y = (this.ClientSize.Height - credentialControl.Height) / 2;
             credentialControl.Location = new Point(x, y);
+            this.AcceptButton = credentialControl.LoginButton;
 
             this.Controls.Add(credentialControl);
         }
-    
-    }
+
+        private void FormAddCredentials_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            Application.Exit(); // ensures app exits fully
+           }
+        }
 }

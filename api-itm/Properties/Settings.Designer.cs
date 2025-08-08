@@ -34,5 +34,29 @@ namespace api_itm.Properties {
                 this["SavedUsername"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string SavedCredentialsUser {
+            get {
+                return ((string)(this["SavedCredentialsUser"]));
+            }
+            set {
+                this["SavedCredentialsUser"] = value;
+            }
+        }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("")]
+        public string SavedCredentialsPassword {
+            get {
+                return ((string)(this["SavedCredentialsPassword"]));
+            }
+            set {
+                this["SavedCredentialsPassword"] = value;
+            }
+        }
     }
 }

@@ -37,6 +37,7 @@
             ClientSize = new Size(800, 450);
             Name = "FormAddCredentials";
             Text = "FormAddCredentials";
+            FormClosed += FormAddCredentials_FormClosed;
             Load += FormAddCredentials_Load;
             ResumeLayout(false);
         }

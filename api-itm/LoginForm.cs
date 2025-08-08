@@ -19,6 +19,7 @@ namespace api_itm
         {
             InitializeComponent();
             _db = db;
+            this.AcceptButton = btnLogin;
         }
 
 
@@ -37,12 +38,12 @@ namespace api_itm
                 MessageBox.Show("Please enter both username and password.");
                 return;
             }
-             
+
             Debug.WriteLine($"username: {username}");
             Debug.WriteLine($"password: {password}");
-            
+
             var user = _db.Users.FirstOrDefault(u => u.Username == username && u.Password == password);
-            Debug.WriteLine($"user: {user}"); 
+            Debug.WriteLine($"user: {user}");
             if (user != null) //Login successful
             {
                 Debug.WriteLine("Login successful");
@@ -80,6 +81,9 @@ namespace api_itm
             }
         }
 
+        private void txtUsername_TextChanged(object sender, EventArgs e)
+        {
 
+        }
     }
 }

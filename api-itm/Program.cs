@@ -1,9 +1,10 @@
 using api_itm;
+using api_itm.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.IO.Packaging;
 using System.Diagnostics;
+using System.IO.Packaging;
 
 namespace api_itm
 {
@@ -32,5 +33,12 @@ namespace api_itm
             var loginForm = scope.ServiceProvider.GetRequiredService<LoginForm>();
             Application.Run(loginForm);
         }
+
+
+        public static class SessionState
+        {
+            public static TokenStore Tokens { get; set; } = new TokenStore();
+        }
+
     }
 }

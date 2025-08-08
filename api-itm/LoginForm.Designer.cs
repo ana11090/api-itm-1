@@ -61,6 +61,7 @@
             txtUsername.Name = "txtUsername";
             txtUsername.Size = new Size(281, 27);
             txtUsername.TabIndex = 2;
+            txtUsername.TextChanged += txtUsername_TextChanged;
             // 
             // txtPassword
             // 
