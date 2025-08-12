@@ -1,19 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+﻿using api_itm.Infrastructure.Sessions; // <-- add this
+using System;
 using System.Diagnostics;
+using System.Linq;
+using System.Windows.Forms;
 
 namespace api_itm
 {
     public partial class LoginForm : Form
     {
         private readonly AppDbContext _db;
+        private ISessionContext _session; // set via Init(...)
 
         public LoginForm(AppDbContext db)
         {
@@ -22,10 +18,10 @@ namespace api_itm
             this.AcceptButton = btnLogin;
         }
 
-
-        private void lbUsername_Click(object sender, EventArgs e)
+        // Call this once right after resolving the form
+        public void Init(ISessionContext sessionContext)
         {
-
+            _session = sessionContext;
         }
 
         private void btnLogin_Click(object sender, EventArgs e)
@@ -44,27 +40,38 @@ namespace api_itm
 
             var user = _db.Users.FirstOrDefault(u => u.Username == username && u.Password == password);
             Debug.WriteLine($"user: {user}");
-            if (user != null) //Login successful
+
+            if (user != null) // Login successful
             {
                 Debug.WriteLine("Login successful");
 
-                //  Save username in settings
-                // This will allow the username to be pre-filled next time the form is opened
+                // Save username for next time
                 Properties.Settings.Default.SavedUsername = username;
                 Properties.Settings.Default.Save();
 
-                // Open new form first
-                FormAddCredentials credentials = new FormAddCredentials(_db);
+                //  create/update in-memory session 
+                if (_session is SessionContext sc)
+                {
+                    sc.SessionId = Guid.NewGuid().ToString("D"); // one per login
+                    sc.UserName = user.Username;
+                    sc.UserId = user.IdUser.ToString();
+                }
+                // 
 
-                // Match position and size
-                credentials.StartPosition = FormStartPosition.Manual;
-                credentials.Location = this.Location;
-                credentials.Size = this.Size;
+                Debug.WriteLine("=== Session just created LoginForm ===");
+                Debug.WriteLine($"SessionId: {_session.SessionId}");
+                Debug.WriteLine($"UserName: {_session.UserName}");
+                Debug.WriteLine($"UserId: {_session.UserId}");
 
+                // Open next form
+                var credentials = new FormAddCredentials(_db)
+                {
+                    StartPosition = FormStartPosition.Manual,
+                    Location = this.Location,
+                    Size = this.Size
+                };
                 credentials.Show();
-
-                // Then hide the current login form ( can't close it, as it will shut down the application )
-                this.Hide();
+                this.Hide(); // don't close app
             }
             else
             {
@@ -76,14 +83,10 @@ namespace api_itm
         {
             string savedUsername = Properties.Settings.Default.SavedUsername;
             if (!string.IsNullOrWhiteSpace(savedUsername))
-            {
                 txtUsername.Text = savedUsername;
-            }
         }
 
-        private void txtUsername_TextChanged(object sender, EventArgs e)
-        {
-
-        }
+        private void lbUsername_Click(object sender, EventArgs e) { }
+        private void txtUsername_TextChanged(object sender, EventArgs e) { }
     }
 }

@@ -96,6 +96,30 @@ namespace api_itm.UserControler
                 }
             };
 
+            //main button will open too on clikc
+
+            _tree.NodeMouseClick += (s, e) =>
+            {
+                if (e.Node.Level == 0)
+                {
+                    if (e.Node.Nodes.Count == 0)
+                    {
+                        // Root with no children -> treat as a direct item click
+                        ItemClicked?.Invoke(this, (e.Node.Text, e.Node.Text));
+                    }
+                    else
+                    {
+                        e.Node.Toggle(); // normal expand/collapse for sections that have children
+                    }
+                }
+                else
+                {
+                    // Child item clicked
+                    ItemClicked?.Invoke(this, (e.Node.Parent.Text, e.Node.Text));
+                }
+            };
+
+
             // Apply initial zoom
             ApplyZoom();
 

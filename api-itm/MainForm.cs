@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows.Forms;
 using api_itm.UserControler;   // ControlSidebarMenu
 using api_itm.Infrastructure; // TabManager
+using api_itm.UserControler.UserProfile; 
 
 namespace api_itm
 {
@@ -109,24 +110,43 @@ namespace api_itm
             _menu.ItemClicked += (s, e) =>
             {
                 var (section, item) = e;
-                var key = $"{section}:{item}"; // unique tab key
+                var key = string.IsNullOrEmpty(item) ? section : $"{section}:{item}";
+                var title = string.IsNullOrEmpty(item) ? section : item;
 
-                // Creates the control to display inside the tab
-                Control CreateContent() => new Label
+                Control CreateContent()
                 {
-                    Dock = DockStyle.Fill,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font("Segoe UI", 12, FontStyle.Regular),
-                    Text = $"{section} → {item}"
-                };
+                    // Root-only item: Profil utilizator
+                    if (section == "Profil utilizator")
+                    {
+                        var uc = new ControlDetailsUserProfile(_db); // or parameterless if that’s your ctor
+                        uc.Dock = DockStyle.Fill;
+                        return uc;
+                    }
 
-                // Open or bring existing tab to front
-                _tabManager.OpenOrActivate(key, CreateContent, item);
+                    // Other items (example fallback)
+                    switch (item)
+                    {
+                        case "Inregistrare salariat":
+                            // return new ControlInregistrareSalariat(_db) { Dock = DockStyle.Fill };
+                            break;
+                            // add more cases as you implement
+                    }
 
-                // Make sure the tabs are visible
+                    // Fallback placeholder
+                    return new Label
+                    {
+                        Dock = DockStyle.Fill,
+                        TextAlign = ContentAlignment.MiddleCenter,
+                        Font = new Font("Segoe UI", 12),
+                        Text = $"{section} → {item}"
+                    };
+                }
+
+                _tabManager.OpenOrActivate(key, CreateContent, title);
                 _tabs.BringToFront();
             };
         }
+
 
         /// <summary>
         /// Fill the sidebar with menu sections + items
@@ -135,12 +155,13 @@ namespace api_itm
         {
             _menu.BuildMenu(new[]
             {
+                ("Profil utilizator",    null ),
                 ("Salariat",   new[] { "Inregistrare salariat", "HG Agreement", "Employment Agreement", "Supplier Agreements" }),
                 ("Contract", new[] { " Agreements contract" })
               //  ("Financial Reports", new[] { "Income Statement", "Balance Sheet", "Profit and Loss", "Cash Flow" }),
                // ("HR Reports",        new[] { "Employee Performance", "Attendance Record", "Employee Satisfaction" }),
                // ("Labels",            new[] { "Addresses" })
-            }, expandAll: true);
+            }, expandAll: false);
         }
 
         // Optional load event
