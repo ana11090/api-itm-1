@@ -43,16 +43,39 @@ namespace api_itm
             }
 
             string token = await LoginAsync(username, password);
+            Debug.WriteLine("=== Raw token from API ===");
+            Debug.WriteLine(token);
+
             if (token != null)
             {
                 MessageBox.Show("Login successful!");
+
                 var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+
+                Debug.WriteLine("=== JWT Header ===");
+                foreach (var h in jwt.Header)
+                    Debug.WriteLine($"{h.Key}: {h.Value}");
+
+                Debug.WriteLine("=== JWT Claims ===");
+                foreach (var claim in jwt.Claims)
+                    Debug.WriteLine($"{claim.Type}: {claim.Value}");
+
                 if (jwt.Payload.Exp.HasValue)
                 {
                     var exp = DateTimeOffset.FromUnixTimeSeconds(jwt.Payload.Exp.Value).ToLocalTime();
                     Debug.WriteLine($"Token expires at: {exp}");
                     StartTokenRefreshTimer(SessionState.Tokens.Expiration);
 
+                    var mainForm = new MainForm(_db)
+                    {
+                        StartPosition = FormStartPosition.CenterScreen
+                    };
+
+                    var parentForm = this.FindForm();
+                    mainForm.FormClosed += (s, ev) => parentForm?.Close();
+
+                    mainForm.Show();
+                    parentForm?.Hide();
                 }
             }
             else

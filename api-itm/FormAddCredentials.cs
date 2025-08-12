@@ -32,6 +32,7 @@ namespace api_itm
             this.AcceptButton = credentialControl.LoginButton;
 
             this.Controls.Add(credentialControl);
+            
         }
 
         private void FormAddCredentials_FormClosed(object sender, FormClosedEventArgs e)
