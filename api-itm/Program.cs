@@ -1,6 +1,7 @@
-﻿using api_itm;
+﻿using api_itm.Data;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Models;
+using api_itm.UserControler.Employee;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,6 +11,8 @@ namespace api_itm
 {
     internal static class Program
     {
+        public static IHost App { get; private set; }
+
         [STAThread]
         static void Main()
         {
@@ -17,39 +20,41 @@ namespace api_itm
 
             var builder = Host.CreateApplicationBuilder();
 
-            // 1️⃣ Configure EF Core with PostgreSQL
+            // Configure EF Core with PostgreSQL
             builder.Services.AddDbContext<AppDbContext>(options =>
                 options.UseNpgsql("Host=193.231.20.42;Port=5432;Database=direc_restore;Username=usrru;Password=R3sur$e")
-                       .LogTo(Console.WriteLine)           // Logs SQL queries
-                       .EnableSensitiveDataLogging()       // Show parameters in logs (for dev only)
-                       .EnableDetailedErrors()             // More detailed EF errors
+                       .LogTo(Console.WriteLine)
+                       .EnableSensitiveDataLogging()
+                       .EnableDetailedErrors()
             );
 
-            // 2️⃣ Register the in-memory session as a singleton (one per app)
+            // Register the in-memory session as a singleton
             builder.Services.AddSingleton<ISessionContext, SessionContext>();
 
-            // 3️⃣ Register Forms
+            // Register Forms and UserControls
             builder.Services.AddScoped<LoginForm>();
+            builder.Services.AddScoped<MainForm>();
+            builder.Services.AddScoped<ControlerEmployeeView>();
 
-            var app = builder.Build();
+            // 🔧 Build the host AFTER all services are registered
+            App = builder.Build();
 
-            using var scope = app.Services.CreateScope();
+            using var scope = App.Services.CreateScope();
 
-            // 4️⃣ Resolve LoginForm
+            // Resolve LoginForm
             var loginForm = scope.ServiceProvider.GetRequiredService<LoginForm>();
 
-            // 5️⃣ Give it the session instance
+            // Init session
             var session = scope.ServiceProvider.GetRequiredService<ISessionContext>();
             loginForm.Init(session);
-             
-            Debug.WriteLine("=== Session just created ===");
-            Debug.WriteLine($"SessionId: {session.SessionId}"); // will be null at first
 
-            // 6️⃣ Run application
+            Debug.WriteLine("=== Session just created ===");
+            Debug.WriteLine($"SessionId: {session.SessionId}");
+
+            // Start app
             Application.Run(loginForm);
         }
 
-        // Keep your existing token store for OpenID / API calls
         public static class SessionState
         {
             public static TokenStore Tokens { get; set; } = new TokenStore();

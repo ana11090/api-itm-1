@@ -1,11 +1,14 @@
-﻿using api_itm.Models;
+﻿using api_itm.Data;
+using api_itm.Models;
 using IdentityModel.Client;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Diagnostics;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static api_itm.Program;
 using static api_itm.Program;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
@@ -66,16 +69,18 @@ namespace api_itm
                     Debug.WriteLine($"Token expires at: {exp}");
                     StartTokenRefreshTimer(SessionState.Tokens.Expiration);
 
-                    var mainForm = new MainForm(_db)
-                    {
-                        StartPosition = FormStartPosition.CenterScreen
-                    };
+                    //  Get service provider from Program or store it globally
+                    var scope = App.Services.CreateScope();
+                    var mainForm = scope.ServiceProvider.GetRequiredService<MainForm>();
+                    mainForm.StartPosition = FormStartPosition.CenterScreen;
 
                     var parentForm = this.FindForm();
                     mainForm.FormClosed += (s, ev) => parentForm?.Close();
 
                     mainForm.Show();
                     parentForm?.Hide();
+
+                      
                 }
             }
             else

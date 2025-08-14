@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace api_itm.Models
+namespace api_itm.Data.Entity
 {
     public class User
     {

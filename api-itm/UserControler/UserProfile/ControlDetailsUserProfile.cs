@@ -23,5 +23,10 @@ namespace api_itm.UserControler.UserProfile
         {
 
         }
+
+        private void label1_Click(object sender, EventArgs e)
+        {
+
+        }
     }
 }

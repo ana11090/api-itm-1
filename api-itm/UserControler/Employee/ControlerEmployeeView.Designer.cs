@@ -1,6 +1,6 @@
-﻿namespace api_itm.UserControler.UserProfile
+﻿namespace api_itm.UserControler.Employee
 {
-    partial class ControlDetailsUserProfile
+    partial class ControlerEmployeeView
     {
         /// <summary> 
         /// Required designer variable.
@@ -28,33 +28,33 @@
         /// </summary>
         private void InitializeComponent()
         {
-            lbControlDetailsUserProfileTitle = new Label();
+            dgvViewSalariati = new DataGridView();
+            ((System.ComponentModel.ISupportInitialize)dgvViewSalariati).BeginInit();
             SuspendLayout();
             // 
-            // lbControlDetailsUserProfileTitle
+            // dgvViewSalariati
             // 
-            lbControlDetailsUserProfileTitle.AutoSize = true;
-            lbControlDetailsUserProfileTitle.Location = new Point(76, 28);
-            lbControlDetailsUserProfileTitle.Name = "lbControlDetailsUserProfileTitle";
-            lbControlDetailsUserProfileTitle.Size = new Size(107, 20);
-            lbControlDetailsUserProfileTitle.TabIndex = 0;
-            lbControlDetailsUserProfileTitle.Text = "Profil utilizator";
-            lbControlDetailsUserProfileTitle.Click += label1_Click;
+            dgvViewSalariati.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            dgvViewSalariati.Location = new Point(125, 107);
+            dgvViewSalariati.Name = "dgvViewSalariati";
+            dgvViewSalariati.RowHeadersWidth = 51;
+            dgvViewSalariati.Size = new Size(534, 188);
+            dgvViewSalariati.TabIndex = 0;
             // 
-            // ControlDetailsUserProfile
+            // ControlerEmployeeView
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            Controls.Add(lbControlDetailsUserProfileTitle);
-            Name = "ControlDetailsUserProfile";
-            Size = new Size(542, 246);
-            Load += ControlDetailsUserProfile_Load;
+            Controls.Add(dgvViewSalariati);
+            Name = "ControlerEmployeeView";
+            Size = new Size(892, 364);
+            Load += ControlerEmployeeView_Load;
+            ((System.ComponentModel.ISupportInitialize)dgvViewSalariati).EndInit();
             ResumeLayout(false);
-            PerformLayout();
         }
 
         #endregion
 
-        private Label lbControlDetailsUserProfileTitle;
+        private DataGridView dgvViewSalariati;
     }
 }

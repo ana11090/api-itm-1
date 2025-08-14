@@ -1,10 +1,12 @@
-﻿using System;
+﻿using api_itm.Infrastructure; // TabManager
+using api_itm.UserControler;   // ControlSidebarMenu
+using api_itm.UserControler.Employee;
+using api_itm.UserControler.UserProfile;
+using Microsoft.Extensions.DependencyInjection;
+using System;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
-using api_itm.UserControler;   // ControlSidebarMenu
-using api_itm.Infrastructure; // TabManager
-using api_itm.UserControler.UserProfile; 
 
 namespace api_itm
 {
@@ -127,9 +129,9 @@ namespace api_itm
                     switch (item)
                     {
                         case "Inregistrare salariat":
-                            // return new ControlInregistrareSalariat(_db) { Dock = DockStyle.Fill };
-                            break;
-                            // add more cases as you implement
+                            var employeeView = Program.App.Services.GetRequiredService<ControlerEmployeeView>();
+                            employeeView.Dock = DockStyle.Fill;
+                            return employeeView;
                     }
 
                     // Fallback placeholder

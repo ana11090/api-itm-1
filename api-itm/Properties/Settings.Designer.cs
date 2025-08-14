@@ -58,5 +58,17 @@ namespace api_itm.Properties {
                 this["SavedCredentialsPassword"] = value;
             }
         }
+        
+        [global::System.Configuration.UserScopedSettingAttribute()]
+        [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+        [global::System.Configuration.DefaultSettingValueAttribute("09448538-60be-42ae-be65-39af3ee3c240")]
+        public string referintaSalariatId {
+            get {
+                return ((string)(this["referintaSalariatId"]));
+            }
+            set {
+                this["referintaSalariatId"] = value;
+            }
+        }
     }
 }
