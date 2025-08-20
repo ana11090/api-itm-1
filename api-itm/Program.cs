@@ -1,11 +1,14 @@
-﻿using api_itm.Data;
+﻿using System;
+using System.Diagnostics;
+using System.Windows.Forms;
+using api_itm.Data;
+using api_itm.Infrastructure;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Models;
 using api_itm.UserControler.Employee;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Diagnostics;
 
 namespace api_itm
 {
@@ -28,31 +31,35 @@ namespace api_itm
                        .EnableDetailedErrors()
             );
 
-            // Register the in-memory session as a singleton
+            // DI registrations
             builder.Services.AddSingleton<ISessionContext, SessionContext>();
-
-            // Register Forms and UserControls
             builder.Services.AddScoped<LoginForm>();
             builder.Services.AddScoped<MainForm>();
             builder.Services.AddScoped<ControlerEmployeeView>();
 
-            // 🔧 Build the host AFTER all services are registered
+            // Build the host AFTER all services are registered
             App = builder.Build();
 
-            using var scope = App.Services.CreateScope();
+            // Create a scope to resolve scoped services
+            using (var serviceScope = App.Services.CreateScope())
+            {
+                var services = serviceScope.ServiceProvider;
 
-            // Resolve LoginForm
-            var loginForm = scope.ServiceProvider.GetRequiredService<LoginForm>(); 
+                // 1) Ensure DB objects exist (no migrations)
+                var db = services.GetRequiredService<AppDbContext>();
+                DbIdRagesSetup.EnsureAsync(db).GetAwaiter().GetResult();
 
-            // Init session
-            var session = scope.ServiceProvider.GetRequiredService<ISessionContext>(); 
-            loginForm.Init(session); 
+                // 2) Resolve session + login form
+                var session = services.GetRequiredService<ISessionContext>();
+                var loginForm = services.GetRequiredService<LoginForm>();
+                loginForm.Init(session);
 
-            Debug.WriteLine("=== Session just created ===");
-            Debug.WriteLine($"SessionId: {session.SessionId}");
+                Debug.WriteLine("=== Session just created ===");
+                Debug.WriteLine($"SessionId: {session.SessionId}");
 
-            // Start app
-            Application.Run(loginForm);
+                // 3) Start WinForms app
+                Application.Run(loginForm);
+            }
         }
 
         public static class SessionState
