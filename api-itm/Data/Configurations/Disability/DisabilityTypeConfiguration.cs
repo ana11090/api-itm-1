@@ -1,4 +1,4 @@
-﻿using api_itm.Data.Entity.Disability;
+﻿using api_itm.Data.Entity.Ru.Disability;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using System;

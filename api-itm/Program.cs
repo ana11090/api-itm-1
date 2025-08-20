@@ -42,11 +42,11 @@ namespace api_itm
             using var scope = App.Services.CreateScope();
 
             // Resolve LoginForm
-            var loginForm = scope.ServiceProvider.GetRequiredService<LoginForm>();
+            var loginForm = scope.ServiceProvider.GetRequiredService<LoginForm>(); 
 
             // Init session
-            var session = scope.ServiceProvider.GetRequiredService<ISessionContext>();
-            loginForm.Init(session);
+            var session = scope.ServiceProvider.GetRequiredService<ISessionContext>(); 
+            loginForm.Init(session); 
 
             Debug.WriteLine("=== Session just created ===");
             Debug.WriteLine($"SessionId: {session.SessionId}");

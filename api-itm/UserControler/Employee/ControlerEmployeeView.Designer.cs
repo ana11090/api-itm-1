@@ -29,32 +29,46 @@
         private void InitializeComponent()
         {
             dgvViewSalariati = new DataGridView();
+            label1 = new Label();
             ((System.ComponentModel.ISupportInitialize)dgvViewSalariati).BeginInit();
             SuspendLayout();
             // 
             // dgvViewSalariati
             // 
             dgvViewSalariati.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dgvViewSalariati.Location = new Point(125, 107);
+            dgvViewSalariati.Location = new Point(40, 78);
             dgvViewSalariati.Name = "dgvViewSalariati";
             dgvViewSalariati.RowHeadersWidth = 51;
-            dgvViewSalariati.Size = new Size(534, 188);
+            dgvViewSalariati.Size = new Size(804, 303);
             dgvViewSalariati.TabIndex = 0;
+            dgvViewSalariati.CellContentClick += dgvViewSalariati_CellContentClick;
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Location = new Point(40, 20);
+            label1.Name = "label1";
+            label1.Size = new Size(0, 20);
+            label1.TabIndex = 1;
+            label1.Click += label1_Click;
             // 
             // ControlerEmployeeView
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
+            Controls.Add(label1);
             Controls.Add(dgvViewSalariati);
             Name = "ControlerEmployeeView";
-            Size = new Size(892, 364);
+            Size = new Size(1176, 492);
             Load += ControlerEmployeeView_Load;
             ((System.ComponentModel.ISupportInitialize)dgvViewSalariati).EndInit();
             ResumeLayout(false);
+            PerformLayout();
         }
 
         #endregion
 
         private DataGridView dgvViewSalariati;
+        private Label label1;
     }
 }

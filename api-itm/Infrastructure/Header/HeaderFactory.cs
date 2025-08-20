@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using api_itm.Data.Entity;
+using api_itm.Data.Entity.Ru;
 
 namespace api_itm.Infrastructure.Header
 {

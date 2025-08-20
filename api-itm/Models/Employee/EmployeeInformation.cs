@@ -57,11 +57,16 @@ namespace api_itm.Models.Employee
         [JsonPropertyName("dataValabilitateCertificatHandicap")]
         public DateTime? DataValabilitateCertificatHandicap { get; set; }
 
+        [JsonPropertyName("gradInvaliditate")]
+        public string GradInvaliditate { get; set; }
+
         [JsonPropertyName("mentiuni")]
         public string Mentiuni { get; set; }
 
         [JsonPropertyName("motivRadiere")]
         public string MotivRadiere { get; set; }
+
+       
     }
 
     public class Localitate

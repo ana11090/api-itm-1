@@ -1,4 +1,5 @@
 ﻿using api_itm.Data;
+using api_itm.Infrastructure.Sessions;
 using api_itm.Models;
 using IdentityModel.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,11 +22,12 @@ namespace api_itm
 
         private System.Windows.Forms.Timer tokenRefreshTimer;
 
-
-        public ControlCredentiale(AppDbContext db)
+        private readonly ISessionContext _session;
+        public ControlCredentiale(AppDbContext db, ISessionContext session)
         {
             InitializeComponent();
             _db = db; 
+            _session = session; // set via constructor
             this.Load += ControlCredentials_Load;
         }
 

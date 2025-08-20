@@ -128,7 +128,7 @@ namespace api_itm
                     // Other items (example fallback)
                     switch (item)
                     {
-                        case "Inregistrare salariat":
+                        case "Adaugare date salariati":
                             var employeeView = Program.App.Services.GetRequiredService<ControlerEmployeeView>();
                             employeeView.Dock = DockStyle.Fill;
                             return employeeView;
@@ -158,7 +158,7 @@ namespace api_itm
             _menu.BuildMenu(new[]
             {
                 ("Profil utilizator",    null ),
-                ("Salariat",   new[] { "Inregistrare salariat", "HG Agreement", "Employment Agreement", "Supplier Agreements" }),
+                ("Salariat",   new[] { "Adaugare date salariati", "HG Agreement", "Employment Agreement", "Supplier Agreements" }),
                 ("Contract", new[] { " Agreements contract" })
               //  ("Financial Reports", new[] { "Income Statement", "Balance Sheet", "Profit and Loss", "Cash Flow" }),
                // ("HR Reports",        new[] { "Employee Performance", "Attendance Record", "Employee Satisfaction" }),

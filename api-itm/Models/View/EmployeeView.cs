@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Text.Json.Serialization;
-using System.Threading.Tasks;
+﻿using System.Text.Json.Serialization;
 using api_itm.Models.Employee;
+using api_itm.Models.Reges;   // <-- bring HeaderView into scope
 
 namespace api_itm.Models.View
 {
@@ -13,15 +9,13 @@ namespace api_itm.Models.View
         [JsonPropertyName("$type")]
         public string Type { get; set; }  // maps to "$type" in JSON
 
-        public Header Header { get; set; }
+        // Use the wire/transport header type
+        public HeaderView Header { get; set; }
 
         [JsonPropertyName("referintaSalariat")]
         public ReferintaSalariat ReferintaSalariat { get; set; }
 
         [JsonPropertyName("info")]
-
         public EmployeeInformation Info { get; set; }
     }
-
-   
 }
