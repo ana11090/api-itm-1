@@ -19,16 +19,16 @@ namespace api_itm.Data.Entity.Ru
         public string CountryName { get; set; }
 
         [Column("tiptara")]
-        public string CountryType { get; set; }
+        public string? CountryType { get; set; }
 
         [Column("cod_alpha_2")]
-        public string Alpha2Code { get; set; }
+        public string? Alpha2Code { get; set; }
 
         [Column("cod_alpha_3")]
-        public string Alpha3Code { get; set; }
+        public string? Alpha3Code { get; set; }
 
         [Column("cod_iso_international")]
-        public string IsoInternationalCode { get; set; }
+        public string? IsoInternationalCode { get; set; }
 
         [Column("cod_numeric")]
         public int? NumericCode { get; set; }

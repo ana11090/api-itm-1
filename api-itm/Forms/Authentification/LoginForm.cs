@@ -55,14 +55,14 @@ namespace api_itm
                 {
                     sc.SessionId = Guid.NewGuid().ToString("D"); // one per login
                     sc.UserName = user.Username;
-                 //   sc.UserId = user.IdUser.ToString(); se adauga la conectarea cu credentiale de fapt...
+                   sc.UserId = user.IdUser.ToString(); 
                 }
                 // 
 
                 Debug.WriteLine("=== Session just created LoginForm ===");
                 Debug.WriteLine($"SessionId: {_session.SessionId}");
                 Debug.WriteLine($"UserName: {_session.UserName}");
-               // Debug.WriteLine($"UserId: {_session.UserId}");
+                Debug.WriteLine($"UserId: {_session.UserId}");
 
                 // Open next form
                 var credentials = new FormAddCredentials(_db, _session)

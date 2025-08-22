@@ -1,10 +1,18 @@
 ﻿using api_itm.Data;
+using api_itm.Data.Entity;
+using api_itm.Data.Entity.Ru;   
 using api_itm.Infrastructure.Mappers;
 using api_itm.Infrastructure.Sessions;
+using api_itm.Infrastructure;
+
 using api_itm.Models.Employee;
+using api_itm.Models.Reges;      
 using api_itm.Models.Reges;   // HeaderView
+using api_itm.Models.Reges;      
 using api_itm.Models.View;    // EmployeeView
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.VisualBasic.ApplicationServices;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -42,9 +50,20 @@ namespace api_itm.UserControler.Employee
         private const string BaseUrl = "https://api.dev.inspectiamuncii.org/";   // <- set your actual API host
         private const string InregistrareSalariatUrl = "api/Salariat";
 
+        private const string PollMessageUrl = "api/Status/PollMessage";   // POST, no body
+        private const string ReadMessageUrl = "api/Status/ReadMessage";   // POST, no body
+        private const string CommitReadUrl = "api/Status/CommitRead";    // POST, no body
 
-        private const string QueueResultsUrl = "/api/queue/results";
-        private const string QueueAckUrl = "/api/queue/ack";
+        private const string ConsumerId = "winforms-dev-1"; // sau string.Empty pentru implicit
+
+        private static string Trunc(string s, int max = 600)
+    => string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
+
+        private string WithConsumer(string path)
+            => string.IsNullOrWhiteSpace(ConsumerId) ? path : $"{path}?consumerId={Uri.EscapeDataString(ConsumerId)}";
+
+        //private const string QueueResultsUrl = "api/queue/results";
+        //private const string QueueAckUrl = "api/queue/ack";
 
         private static readonly JsonSerializerOptions _jsonOpts = new JsonSerializerOptions
         {
@@ -213,11 +232,19 @@ namespace api_itm.UserControler.Employee
             // PersonId, SirutaCode, Address, NationalId, LastName, FirstName, BirthDate,
             // NationalityTypeId, DomicileCountryId, IdentityDocTypeId, IdTipApatrid,
             // HandicapTypeId, DisabilityGradeId, HandicapCertificateDate, HandicapCertificateNumber, Notes, WorkPermitStartDate, WorkPermitEndDate
-            //var apatridTest = await _db.TypePapartide.ToListAsync();
+            //var apatridTest = await _db.Countries.ToListAsync();
             //foreach (var a in apatridTest)
             //{
             //    Debug.WriteLine($"ID: {a.IdTypePapartid}, Name: {a.PaPartidName}, Code: {a.CodPaPatrid}");
             //}
+
+            var countries = await _db.Countries.ToListAsync();
+
+            foreach (var country in countries)
+            {
+                Debug.WriteLine($@" --- COUNTRY --- ID: {country.CountryId},Name: {country.CountryName},Type: {country.CountryType}  ,Revisal Name: {country.CountryNameRevisal}");
+            }
+
 
             //var testJoin = await (from p in _db.People
             //                      join ap in _db.TypePapartide
@@ -236,13 +263,13 @@ namespace api_itm.UserControler.Employee
             var rows =
                 await (from p in _db.People
 
-                       join n in _db.NationalityTypes
-                            on p.NationalityTypeId equals n.NationalityTypeId into ngrp
-                       from n in ngrp.DefaultIfEmpty()
-
                        join c in _db.Countries
                             on p.DomicileCountryId equals c.CountryId into cgrp
                        from c in cgrp.DefaultIfEmpty()
+
+                       join n in _db.NationalityTypes
+                          on c.CountryId equals n.NationalityTypeId into ngrp
+                       from n in ngrp.DefaultIfEmpty()
 
                        join a in _db.IdentityDocumentTypes
                             on p.IdentityDocTypeId equals a.IdentityDocumentTypeId into agrp
@@ -270,9 +297,10 @@ namespace api_itm.UserControler.Employee
                            nume = p.LastName,
                            prenume = p.FirstName,
                            dataNastere = p.BirthDate,
+                           Nationalitate = c.CountryNameRevisal,
+                           TaraDomiciliu = c.CountryNameRevisal ,
 
-                           nationalitate = n != null ? n.NationalityTypeName : null,
-                           taraDomiciliu = c != null ? c.CountryName : null,
+
                            tipActIdentitate = a != null ? a.IdentityDocumentName : null,
                            apatrid = ap != null ? ap.PaPartidName : null,
 
@@ -330,6 +358,7 @@ namespace api_itm.UserControler.Employee
             {
                 if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
                 {
+                    // hide the PersonId column from the UI
                     col.Visible = false;
                     break;
                 }
@@ -604,98 +633,253 @@ namespace api_itm.UserControler.Employee
         // Step 1: Send one payload -> get synchronous MessageResponse (recipisa)
         private async Task SendOneAsync(int personId)
         {
+            // Build payload
             var payload = await BuildPayloadForPerson(personId);
             var json = JsonSerializer.Serialize(payload, _jsonOpts);
 
             using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            // SEND
+            Debug.WriteLine($"[SEND] POST {http.BaseAddress}{InregistrareSalariatUrl}");
+            Debug.WriteLine($"[SEND] Body={Trunc(json)}");
 
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             var resp = await http.PostAsync(InregistrareSalariatUrl, content);
-            Debug.WriteLine($"Sending to: {http.BaseAddress}{InregistrareSalariatUrl}");
-
             var body = await resp.Content.ReadAsStringAsync();
+            Debug.WriteLine($"[SEND] Status={(int)resp.StatusCode} Body={Trunc(body)}");
 
             if (!resp.IsSuccessStatusCode)
                 throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {body}");
-            else if (resp.IsSuccessStatusCode == true)
-                Debug.WriteLine($"Succes {(int)resp.StatusCode}: {body}");
 
-        var messageResponse = JsonSerializer.Deserialize<MessageResponse>(body, _jsonOpts)
-                               ?? throw new InvalidOperationException("Empty sync response.");
+            // Parse sync receipt
+            var sync = JsonSerializer.Deserialize<SyncResponse>(body, _jsonOpts)
+             ?? throw new InvalidOperationException("Empty sync response.");
 
-            // Save sync receipt to DB (link it with your local personId)
-            await SaveSyncReceiptAsync(personId, messageResponse);
+            await SaveSyncReceiptAsync(personId, sync);
 
-            // Step 2: Poll for async result for this receiptId (as per their docs)
-            var result = await PollForResultAsync(messageResponse.receiptId, CancellationToken.None);
+            var receiptId = sync.responseId;
+            Debug.WriteLine($"[SYNC] responseId={receiptId}, messageId={sync.header?.messageId}");
 
-            // Save result to DB
-            await SaveAsyncResultAsync(personId, messageResponse.receiptId, result);
+            // Poll until result arrives for our responseId
+            var env = await PollForResultAsync(receiptId, CancellationToken.None);
+            if (env != null)
+            {
+                var success = !string.Equals(env.result?.codeType, "ERROR", StringComparison.OrdinalIgnoreCase);
+                Debug.WriteLine($"[RESULT] responseId={env.responseId} success={success} code={env.result?.code} desc={env.result?.description}");
 
-            // Step 3: ACK the processed result
-            await AckAsync(result.messageId);
+                await SaveAsyncResultByReceiptAsync(env.responseId, success, env.result?.code, env.result?.description);
+            }
+
         }
 
-        // Step 2a: Poll results queue until we see our receiptId
-        private async Task<MessageResult> PollForResultAsync(string receiptId, CancellationToken ct)
+
+        private async Task<MessageResult?> PollForResultAsync(Guid expectedReceiptId, CancellationToken ct)
         {
-            // Basic polling loop; tune delay/backoff in real project.
             using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            var url = WithConsumer(PollMessageUrl);
+            Debug.WriteLine($"[POLL] Using {http.BaseAddress}{url}");
+            Debug.WriteLine($"[POLL] Expecting receiptId={expectedReceiptId:D}");
 
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
 
-                var resp = await http.GetAsync(QueueResultsUrl, ct);
+                // POST, no body
+                var resp = await http.PostAsync(url, content: null, ct);
                 var body = await resp.Content.ReadAsStringAsync(ct);
+                Debug.WriteLine($"[POLL] Status={(int)resp.StatusCode} Body={Trunc(body)}");
 
                 if (!resp.IsSuccessStatusCode)
-                    throw new InvalidOperationException($"Results HTTP {(int)resp.StatusCode}: {body}");
+                    throw new InvalidOperationException($"Poll HTTP {(int)resp.StatusCode}: {body}");
 
-                var list = JsonSerializer.Deserialize<List<MessageResult>>(body, _jsonOpts) ?? new List<MessageResult>();
-
-                // If queue is empty, wait a bit and try again
-                if (list.Count == 0)
+                // Nothing available yet (body empty or 204)
+                if (string.IsNullOrWhiteSpace(body))
                 {
                     await Task.Delay(1000, ct);
                     continue;
                 }
 
-                // try find the result for our receiptId
-                var match = list.FirstOrDefault(r => string.Equals(r.receiptId, receiptId, StringComparison.OrdinalIgnoreCase));
-                if (match != null)
-                    return match;
+                MessageResult? result = null;
+                try
+                {
+                    result = JsonSerializer.Deserialize<MessageResult>(body, _jsonOpts);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[POLL] Deserialize error: " + ex);
+                    await Task.Delay(1000, ct);
+                    continue;
+                }
 
-                // Not found yet — optionally ACK unrelated messages or just wait
-                await Task.Delay(1000, ct);
+                if (result == null)
+                {
+                    Debug.WriteLine("[POLL] Null result, retrying...");
+                    await Task.Delay(1000, ct);
+                    continue;
+                }
+
+                Debug.WriteLine($"[POLL] Got messageId={result.messageId}, receiptId={result.receiptId}");
+
+                if (string.Equals(result.receiptId, expectedReceiptId.ToString(), StringComparison.OrdinalIgnoreCase))
+                    return result;
+
+                // Not our message → you can also persist it; for now just continue.
+                Debug.WriteLine("[POLL] Different receipt; continue polling...");
+                await Task.Delay(600, ct);
+            }
+        }
+        private async Task<PollMessageResponse?> PollForResultAsync(string expectedReceiptId, CancellationToken ct)
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            var url = WithConsumer(PollMessageUrl);
+            Debug.WriteLine($"[POLL] Using {http.BaseAddress}{url}");
+            Debug.WriteLine($"[POLL] Expecting responseId={expectedReceiptId}");
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // POST, no body
+                var resp = await http.PostAsync(url, content: null, ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Debug.WriteLine($"[POLL] Status={(int)resp.StatusCode} Body={Trunc(body)}");
+
+                if (resp.StatusCode == System.Net.HttpStatusCode.NoContent || string.IsNullOrWhiteSpace(body))
+                {
+                    await Task.Delay(1000, ct);
+                    continue; // queue empty
+                }
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Poll HTTP {(int)resp.StatusCode}: {body}");
+
+                PollMessageResponse? envelope = null;
+                try
+                {
+                    envelope = JsonSerializer.Deserialize<PollMessageResponse>(body, _jsonOpts);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[POLL] Deserialize error: " + ex);
+                    await Task.Delay(800, ct);
+                    continue;
+                }
+
+                if (envelope == null)
+                {
+                    Debug.WriteLine("[POLL] Null envelope, retrying...");
+                    await Task.Delay(800, ct);
+                    continue;
+                }
+
+                Debug.WriteLine($"[POLL] Got responseId={envelope.responseId}, header.messageId={envelope.header?.messageId}, result.codeType={envelope.result?.codeType}, code={envelope.result?.code}");
+
+                // Is this the async result for our sync response?
+                if (string.Equals(envelope.responseId, expectedReceiptId, StringComparison.OrdinalIgnoreCase))
+                    return envelope;
+
+                // Different operation’s result — you may store it or ignore it
+                Debug.WriteLine("[POLL] Different responseId; continue polling...");
+                await Task.Delay(600, ct);
             }
         }
 
-        // Step 3: ACK a processed result
-        private async Task AckAsync(string messageId)
+        private async Task SaveAsyncResultByReceiptAsync(string receiptId, bool success, string code, string description)
         {
-            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+            try
+            {
+                if (!Guid.TryParse(receiptId, out var rid))
+                {
+                    Debug.WriteLine($"[DB] Invalid receiptId (not a GUID): {receiptId}");
+                    return;
+                }
 
-            var ack = new AckRequest { messageId = messageId };
-            var json = JsonSerializer.Serialize(ack, _jsonOpts);
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var rec = await _db.Set<RegesSync>()
+                                   .FirstOrDefaultAsync(x => x.MessageResultId.HasValue && x.MessageResultId.Value == rid);
 
-            var resp = await http.PostAsync(QueueAckUrl, content);
-            var body = await resp.Content.ReadAsStringAsync();
-
-            if (!resp.IsSuccessStatusCode)
-                throw new InvalidOperationException($"ACK HTTP {(int)resp.StatusCode}: {body}");
+                if (rec != null)
+                {
+                    rec.Status = success ? "Success" : "Error";
+                    rec.ErrorMessage = success ? null : description;
+                    rec.UpdatedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
+                    Debug.WriteLine($"[DB] Updated RegesSync({receiptId}) => {rec.Status} (code={code})");
+                }
+                else
+                {
+                    Debug.WriteLine($"[DB] No RegesSync row for receiptId={receiptId}.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DB] Save error: " + ex);
+                throw;
+            }
         }
 
+        //private async Task<MessageResult> PollForResultAsync(Guid receiptId, CancellationToken ct)
+        //{
+        //    // Basic polling loop; tune delay/backoff in real project.
+        //    using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+        //    http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+        //    while (true)
+        //    {
+        //        ct.ThrowIfCancellationRequested();
+
+        //        var resp = await http.GetAsync(QueueResultsUrl, ct);
+        //        var body = await resp.Content.ReadAsStringAsync(ct);
+
+        //        if (!resp.IsSuccessStatusCode)
+        //            throw new InvalidOperationException($"Results HTTP {(int)resp.StatusCode}: {body}");
+
+        //        var list = JsonSerializer.Deserialize<List<MessageResult>>(body, _jsonOpts) ?? new List<MessageResult>();
+
+        //        // If queue is empty, wait a bit and try again
+        //        if (list.Count == 0)
+        //        {
+        //            await Task.Delay(1000, ct);
+        //            continue;
+        //        }
+
+        //        // try find the result for our receiptId
+        //        var match = list.FirstOrDefault(r => string.Equals(r.receiptId, receiptId, StringComparison.OrdinalIgnoreCase));
+        //        if (match != null)
+        //            return match;
+
+        //        // Not found yet — optionally ACK unrelated messages or just wait
+        //        await Task.Delay(1000, ct);
+        //    }
+        //}
+
+        // Step 3: ACK a processed result
+
         // ======= Helpers you plug into your DB layer =======
-        private Task SaveSyncReceiptAsync(int personId, MessageResponse r)
+        private async Task SaveSyncReceiptAsync(int personId, SyncResponse sync)
         {
-            // TODO: insert/update a table, e.g. RegesSync(personId, receiptId, messageId, createdAt)
-            // r.receiptId, r.messageId, r.timestamp, r.status etc. — adapt to their real schema
-            return Task.CompletedTask;
+            Debug.WriteLine($"Saving sync receipt for personId={personId}, messageId={sync?.header?.messageId}, receiptId={sync?.responseId}");
+            Debug.WriteLine(_session.UserId);
+            var rec = new RegesSync
+            {
+                PersonId = personId,
+                UserId = int.Parse(_session.UserId),
+                MessageResponseId = Guid.TryParse(sync.header.messageId, out var varr) ? varr : (Guid?)null,
+                MessageResultId = Guid.TryParse(sync.responseId, out var rid) ? rid : (Guid?)null,
+                Status = "Pending",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            _db.Add(rec);
+            await _db.SaveChangesAsync();
         }
 
         private Task SaveAsyncResultAsync(int personId, string receiptId, MessageResult r)
@@ -724,27 +908,41 @@ namespace api_itm.UserControler.Employee
 
     // ==================== DTOs to match REGES docs (minimal) ====================
     // Sync response after POST /api/salariat/inregistrare
-    public sealed class MessageResponse
+    // Envelope returned by POST /api/Status/PollMessage
+    public sealed class PollMessageResponse
     {
-        public string messageId { get; set; }   // server message id
-        public string receiptId { get; set; }  // recipisa you must use to match results
-        public string status { get; set; }      // e.g. "Accepted" (depends on their API)
-        public DateTime? timestamp { get; set; }
+        public PollResult result { get; set; }
+        public string responseId { get; set; }   // <-- this is your receiptId
+        public SyncHeader header { get; set; }   // reuse your existing SyncHeader
     }
 
-    // Async result pulled from /api/queue/results
-    public sealed class MessageResult
+    public sealed class PollResult
     {
-        public string messageId { get; set; }   // id you must ACK
-        public string receiptId { get; set; }   // links back to MessageResponse.receiptId
-        public bool success { get; set; }   // success/fail
-        public string code { get; set; }   // e.g. created employee code
-        public string description { get; set; } // error or info message
-        public DateTime? timestamp { get; set; }
+        public string code { get; set; }         // e.g., "OK" or "FAIL"
+        public string codeType { get; set; }     // e.g., "SUCCESS" or "ERROR"
+        public bool? signSpecified { get; set; }
+        public string description { get; set; }
+        public bool? relatedResultsExpected { get; set; }
     }
 
-    public sealed class AckRequest
+    // Keep these from earlier
+    public sealed class SyncResponse
+    {
+        public string responseId { get; set; }
+        public SyncHeader header { get; set; }
+    }
+
+    public sealed class SyncHeader
     {
         public string messageId { get; set; }
+        public string authorId { get; set; }
+        public string clientApplication { get; set; }
+        public string version { get; set; }
+        public string operation { get; set; }
+        public string sessionId { get; set; }
+        public string user { get; set; }
+        public string userId { get; set; }
+        public DateTime? timestamp { get; set; }
     }
+
 }

@@ -21,6 +21,7 @@ namespace api_itm
         public DbSet<PostPerson> PostPeople => Set<PostPerson>(); // DbSet for PostPerson entity from sheme "ru"
         public DbSet<DisabilityCharacter> DisabilityCharacters => Set<DisabilityCharacter>(); // DbSet for County entity from sheme "ru"
 
+        public DbSet<RegesSync> RegesSyncs => Set<RegesSync>(); // DbSet for RegesSync entity from sheme "ru"
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {
@@ -36,8 +37,7 @@ namespace api_itm
 
             modelBuilder.Entity<User>().Property(u => u.IdUser).HasColumnName("idutilizator");
             modelBuilder.Entity<User>().Property(u => u.Username).HasColumnName("userutilizator");
-            modelBuilder.Entity<User>().Property(u => u.Password).HasColumnName("parolautilizator");
-
+            modelBuilder.Entity<User>().Property(u => u.Password).HasColumnName("parolautilizator"); 
             modelBuilder.Entity<User>()
          .ToTable("utilizator") // PostgreSQL table name
          .HasKey(u => u.IdUser); // C# key
