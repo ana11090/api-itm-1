@@ -1,14 +1,15 @@
-﻿using System;
-using System.Diagnostics;
-using System.Windows.Forms;
-using api_itm.Data;
+﻿using api_itm.Data;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Models;
+using api_itm.UserControler.Contracts;
 using api_itm.UserControler.Employee;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System;
+using System.Diagnostics;
+using System.Windows.Forms;
 
 namespace api_itm
 {
@@ -36,6 +37,7 @@ namespace api_itm
             builder.Services.AddScoped<LoginForm>();
             builder.Services.AddScoped<MainForm>();
             builder.Services.AddScoped<ControlerEmployeeView>();
+            builder.Services.AddScoped<ControlerAddContractsView>();
 
             // Build the host AFTER all services are registered
             App = builder.Build();

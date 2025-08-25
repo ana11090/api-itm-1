@@ -54,7 +54,12 @@ namespace api_itm.UserControler.Employee
         private const string ReadMessageUrl = "api/Status/ReadMessage";   // POST, no body
         private const string CommitReadUrl = "api/Status/CommitRead";    // POST, no body
 
+
+        private HashSet<int> _personsWithRegesId = new HashSet<int>();
+
+
         private const string ConsumerId = "winforms-dev-1"; // sau string.Empty pentru implicit
+
 
         private static string Trunc(string s, int max = 600)
     => string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
@@ -176,6 +181,10 @@ namespace api_itm.UserControler.Employee
             // ========= GRID =========
             if (dgvViewSalariati == null)
                 dgvViewSalariati = new DataGridView();
+             
+
+            // color after data binds
+            ApplyRowColorsByRegesId();
 
             dgvViewSalariati.Dock = DockStyle.Fill;
             dgvViewSalariati.AutoGenerateColumns = true;
@@ -217,6 +226,7 @@ namespace api_itm.UserControler.Employee
                 EnsureSpecialColumns();
                 RenumberRows();
                 UpdateCounts();
+                ApplyRowColorsByRegesId();
             };
 
             dgvViewSalariati.Sorted += (_, __) => RenumberRows();
@@ -224,6 +234,41 @@ namespace api_itm.UserControler.Employee
             dgvViewSalariati.RowsRemoved += (_, __) => { RenumberRows(); UpdateCounts(); };
 
             dgvViewSalariati.CellDoubleClick += async (_, __) => await PreviewSelectedRowJsonAsync();
+        }
+
+        private void ApplyRowColorsByRegesId()
+        {
+            if (dgvViewSalariati?.Columns == null || dgvViewSalariati.Rows.Count == 0) return;
+
+            // find the personId column
+            DataGridViewColumn pidCol = null;
+            foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
+            {
+                if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    pidCol = col; break;
+                }
+            }
+            if (pidCol == null) return;
+
+            // gentle green / red-ish
+            var green = System.Drawing.Color.FromArgb(230, 255, 230);
+            var greenSel = System.Drawing.Color.FromArgb(210, 240, 210);
+            var red = System.Drawing.Color.FromArgb(255, 235, 235);
+            var redSel = System.Drawing.Color.FromArgb(240, 210, 210);
+
+            foreach (DataGridViewRow row in dgvViewSalariati.Rows)
+            {
+                if (row.IsNewRow) continue;
+
+                var raw = row.Cells[pidCol.Index].Value?.ToString();
+                if (int.TryParse(raw, out var pid))
+                {
+                    bool hasId = _personsWithRegesId.Contains(pid);
+                    row.DefaultCellStyle.BackColor = hasId ? green : red;
+                    row.DefaultCellStyle.SelectionBackColor = hasId ? greenSel : redSel;
+                }
+            }
         }
 
         private async Task LoadEmployeesAsync()
@@ -297,8 +342,8 @@ namespace api_itm.UserControler.Employee
                            nume = p.LastName,
                            prenume = p.FirstName,
                            dataNastere = p.BirthDate,
-                           Nationalitate = c.CountryNameRevisal,
-                           TaraDomiciliu = c.CountryNameRevisal ,
+                           Nationalitate = RegesJson.FixText(c.CountryNameRevisal),
+                           TaraDomiciliu = RegesJson.FixText((c.CountryNameRevisal)) ,
 
 
                            tipActIdentitate = a != null ? a.IdentityDocumentName : null,
@@ -322,8 +367,23 @@ namespace api_itm.UserControler.Employee
                       .AsNoTracking()
                       .ToListAsync();
 
+            var withRegesNullable = await _db.Set<RegesSync>()
+      .Where(r => r.RegesEmployeeId.HasValue)
+      .Select(r => r.PersonId)          // List<int?>
+      .Distinct()
+      .ToListAsync();
+
+            _personsWithRegesId = new HashSet<int>(
+                withRegesNullable.Where(pid => pid.HasValue)
+                                 .Select(pid => pid.Value)
+            );
+
+
             dgvViewSalariati.AutoGenerateColumns = true;
             dgvViewSalariati.DataSource = rows;
+
+            // 👇 ADD THIS after DataSource
+            ApplyRowColorsByRegesId();
         }
 
         private void EnsureSpecialColumns()
@@ -446,19 +506,75 @@ namespace api_itm.UserControler.Employee
                 return;
             }
 
-            // send one-by-one, sequentially (their API is per-message and you must wait the sync response)
+            int ok = 0, fail = 0;
+
             foreach (var personId in ids)
             {
                 try
                 {
-                    await SendOneAsync(personId);
+                    // 1) Send to API
+                    var sync = await SendOneAsync(personId);
+
+                    // 2) Save sync receipt (same row we’ll later update)
+                    await SaveSyncReceiptAsync(personId, sync);
+
+                    // 3) Poll + update that same row (sets Status, ErrorMessage, RegesEmployeeId)
+                    await PollForResultAndUpdateAsync(sync.responseId, CancellationToken.None);
+
+                    // 4) Read back the row for this responseId and log result
+                    if (Guid.TryParse(sync.responseId, out var rid))
+                    {
+                        var rec = await _db.Set<RegesSync>()
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(x => x.MessageResultId.HasValue && x.MessageResultId.Value == rid);
+
+                        var p = await _db.People
+                            .Where(x => x.PersonId == personId)
+                            .Select(x => new { x.LastName, x.FirstName, x.NationalId })
+                            .FirstOrDefaultAsync();
+
+                        if (rec != null && string.Equals(rec.Status, "Success", StringComparison.OrdinalIgnoreCase) && rec.RegesEmployeeId.HasValue)
+                        {
+                            ok++;
+                            Debug.WriteLine($"[REGES OK] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | salariatId={rec.RegesEmployeeId}");
+                        }
+                        else
+                        {
+                            fail++;
+                            var errMsg = rec?.ErrorMessage ?? "Unknown error";
+                            Debug.WriteLine($"[REGES FAIL] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | error={errMsg}");
+                        }
+                    }
+                    else
+                    {
+                        fail++;
+                        var p = await _db.People
+                            .Where(x => x.PersonId == personId)
+                            .Select(x => new { x.LastName, x.FirstName, x.NationalId })
+                            .FirstOrDefaultAsync();
+
+                        Debug.WriteLine($"[REGES FAIL] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | error=Invalid responseId '{sync.responseId}'");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Eroare trimitere personId={personId}: {ex.Message}");
-                    // continue with the next one
+                    fail++;
+
+                    var p = await _db.People
+                        .Where(x => x.PersonId == personId)
+                        .Select(x => new { x.LastName, x.FirstName, x.NationalId })
+                        .FirstOrDefaultAsync();
+
+                    Debug.WriteLine($"[REGES EXCEPTION] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | ex={ex.Message}");
+                    // keep going
                 }
             }
+
+            // final summary in Output window
+            Debug.WriteLine($"[REGES SUMMARY] total={ids.Count} ok={ok} fail={fail}");
+            MessageBox.Show($"[REGES SUMMARY] total={ids.Count} ok={ok} fail={fail}");
+            // optional UI summary:
+            // MessageBox.Show($"Trimise: {ids.Count}\nSucces: {ok}\nErori: {fail}", "Rezultat trimitere");
         }
 
         private async Task PreviewSelectedRowJsonAsync()
@@ -489,12 +605,23 @@ namespace api_itm.UserControler.Employee
             return null;
         }
 
+        //private async Task PreviewJsonForPerson(int personId)
+        //{
+        //    var payload = await BuildPayloadForPerson(personId);
+        //    var json = JsonSerializer.Serialize(payload, _jsonOpts);
+        //    ShowJsonPreview(json);
+        //}
+
         private async Task PreviewJsonForPerson(int personId)
         {
             var payload = await BuildPayloadForPerson(personId);
-            var json = JsonSerializer.Serialize(payload, _jsonOpts);
+
+            // also make sure names from DB are fixed BEFORE mapping (see earlier message)
+            var json = RegesJson.SanitizeAndSerialize(payload);
+
             ShowJsonPreview(json);
         }
+
 
         [Conditional("DEBUG")]
         private void ShowJsonPreview(string json)
@@ -543,23 +670,24 @@ namespace api_itm.UserControler.Employee
             async Task<string> SafeLookup(Func<Task<string>> q) { try { return await q() ?? ""; } catch { return ""; } }
 
             // RAW names straight from DB (no enum/token mapping)
-            var nationalitateName = await SafeLookup(() =>
-                _db.NationalityTypes
-                   .Where(n => n.NationalityTypeId == p.NationalityTypeId)
-                   .Select(n => n.NationalityTypeName)
-                   .FirstOrDefaultAsync());
+            // RAW names -> FIX THEM here
+            var nationalitateName = RegesJson.FixText(await SafeLookup(() =>
+    _db.NationalityTypes.Where(n => n.NationalityTypeId == p.NationalityTypeId)
+       .Select(n => n.NationalityTypeName).FirstOrDefaultAsync()));
 
-            var taraDomiciliuName = await SafeLookup(() =>
-                _db.Countries
-                   .Where(c => c.CountryId == p.DomicileCountryId)
-                   .Select(c => c.CountryName)
-                   .FirstOrDefaultAsync());
+            var taraDomiciliuName = RegesJson.FixText(await SafeLookup(() =>
+                _db.Countries.Where(c => c.CountryId == p.DomicileCountryId)
+                   .Select(c => c.CountryName).FirstOrDefaultAsync()));
 
-            var tipActCodeRaw = await SafeLookup(() =>
+
+
+            var tipActCodeRaw = RegesJson.FixText((await SafeLookup(() =>
                 _db.IdentityDocumentTypes
                    .Where(a => a.IdentityDocumentTypeId == p.IdentityDocTypeId)
                    .Select(a => a.IdentityDocumentCode)
-                   .FirstOrDefaultAsync());
+                   .FirstOrDefaultAsync())  ));
+
+             nationalitateName = RegesJson.Norma(taraDomiciliuName);
 
             var apatridCodeRaw = await SafeLookup(() =>
                 _db.TypePapartide
@@ -631,19 +759,17 @@ namespace api_itm.UserControler.Employee
         }
 
         // Step 1: Send one payload -> get synchronous MessageResponse (recipisa)
-        private async Task SendOneAsync(int personId)
+        private async Task<SyncResponse> SendOneAsync(int personId)
         {
-            // Build payload
             var payload = await BuildPayloadForPerson(personId);
-            var json = JsonSerializer.Serialize(payload, _jsonOpts);
+            var json = RegesJson.SanitizeAndSerialize(payload);
 
             using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
             http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", GetAccessToken());
 
-            // SEND
             Debug.WriteLine($"[SEND] POST {http.BaseAddress}{InregistrareSalariatUrl}");
-            Debug.WriteLine($"[SEND] Body={Trunc(json)}");
+            Debug.WriteLine($"[SEND] Body={json}");
 
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
             var resp = await http.PostAsync(InregistrareSalariatUrl, content);
@@ -653,25 +779,12 @@ namespace api_itm.UserControler.Employee
             if (!resp.IsSuccessStatusCode)
                 throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {body}");
 
-            // Parse sync receipt
             var sync = JsonSerializer.Deserialize<SyncResponse>(body, _jsonOpts)
-             ?? throw new InvalidOperationException("Empty sync response.");
+                       ?? throw new InvalidOperationException("Empty sync response.");
 
-            await SaveSyncReceiptAsync(personId, sync);
+            Debug.WriteLine($"[SYNC OK] personId={personId}, responseId={sync.responseId}, messageId={sync.header?.messageId}");
 
-            var receiptId = sync.responseId;
-            Debug.WriteLine($"[SYNC] responseId={receiptId}, messageId={sync.header?.messageId}");
-
-            // Poll until result arrives for our responseId
-            var env = await PollForResultAsync(receiptId, CancellationToken.None);
-            if (env != null)
-            {
-                var success = !string.Equals(env.result?.codeType, "ERROR", StringComparison.OrdinalIgnoreCase);
-                Debug.WriteLine($"[RESULT] responseId={env.responseId} success={success} code={env.result?.code} desc={env.result?.description}");
-
-                await SaveAsyncResultByReceiptAsync(env.responseId, success, env.result?.code, env.result?.description);
-            }
-
+            return sync;
         }
 
 
@@ -792,38 +905,51 @@ namespace api_itm.UserControler.Employee
             }
         }
 
-        private async Task SaveAsyncResultByReceiptAsync(string receiptId, bool success, string code, string description)
+        private async Task<string?> PollForResultRawAsync(Guid expectedReceiptId, CancellationToken ct)
         {
-            try
+            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            var url = WithConsumer(PollMessageUrl);
+            Debug.WriteLine($"[POLL-RAW] Using {http.BaseAddress}{url}");
+            Debug.WriteLine($"[POLL-RAW] Expecting receiptId={expectedReceiptId:D}");
+
+            while (true)
             {
-                if (!Guid.TryParse(receiptId, out var rid))
+                ct.ThrowIfCancellationRequested();
+
+                var resp = await http.PostAsync(url, content: null, ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Debug.WriteLine($"[POLL-RAW] Status={(int)resp.StatusCode} Body={Trunc(body)}");
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Poll HTTP {(int)resp.StatusCode}: {body}");
+
+                if (string.IsNullOrWhiteSpace(body))
                 {
-                    Debug.WriteLine($"[DB] Invalid receiptId (not a GUID): {receiptId}");
-                    return;
+                    await Task.Delay(1000, ct);
+                    continue;
                 }
 
-                var rec = await _db.Set<RegesSync>()
-                                   .FirstOrDefaultAsync(x => x.MessageResultId.HasValue && x.MessageResultId.Value == rid);
+                // We only care that it's the message for our receiptId; use a tiny check:
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("receiptId", out var ridEl))
+                    {
+                        var rid = ridEl.GetString();
+                        if (string.Equals(rid, expectedReceiptId.ToString(), StringComparison.OrdinalIgnoreCase))
+                            return body; // ← raw json envelope
+                    }
+                }
+                catch { /* if parse fails, just loop */ }
 
-                if (rec != null)
-                {
-                    rec.Status = success ? "Success" : "Error";
-                    rec.ErrorMessage = success ? null : description;
-                    rec.UpdatedAt = DateTime.UtcNow;
-                    await _db.SaveChangesAsync();
-                    Debug.WriteLine($"[DB] Updated RegesSync({receiptId}) => {rec.Status} (code={code})");
-                }
-                else
-                {
-                    Debug.WriteLine($"[DB] No RegesSync row for receiptId={receiptId}.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[DB] Save error: " + ex);
-                throw;
+                await Task.Delay(600, ct);
             }
         }
+
 
         //private async Task<MessageResult> PollForResultAsync(Guid receiptId, CancellationToken ct)
         //{
@@ -880,6 +1006,229 @@ namespace api_itm.UserControler.Employee
 
             _db.Add(rec);
             await _db.SaveChangesAsync();
+        }
+
+        private async Task PollForResultAndUpdateAsync(string expectedReceiptId, CancellationToken ct)
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            var url = WithConsumer(PollMessageUrl);
+            Debug.WriteLine($"[POLL] Using {http.BaseAddress}{url}");
+            Debug.WriteLine($"[POLL] Expecting responseId={expectedReceiptId}");
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var resp = await http.PostAsync(url, content: null, ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Debug.WriteLine($"[POLL] Status={(int)resp.StatusCode} Body={Trunc(body)}");
+
+                if (resp.StatusCode == System.Net.HttpStatusCode.NoContent || string.IsNullOrWhiteSpace(body))
+                {
+                    await Task.Delay(1000, ct);
+                    continue; // queue empty
+                }
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Poll HTTP {(int)resp.StatusCode}: {body}");
+
+                string responseId = null;
+                string codeType = null, code = null, description = null, operation = null, authorIdStr = null;
+                string regesSalariatId = null;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    var root = doc.RootElement;
+
+                    // must match our recipisă
+                    if (root.TryGetProperty("responseId", out var ridEl) && ridEl.ValueKind == JsonValueKind.String)
+                        responseId = ridEl.GetString();
+
+                    if (!string.Equals(responseId, expectedReceiptId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.WriteLine("[POLL] Different responseId; continue polling...");
+                        await Task.Delay(600, ct);
+                        continue;
+                    }
+
+                    // result (status + possible ref)
+                    if (root.TryGetProperty("result", out var res) && res.ValueKind == JsonValueKind.Object)
+                    {
+                        if (res.TryGetProperty("codeType", out var v) && v.ValueKind == JsonValueKind.String) codeType = v.GetString();
+                        if (res.TryGetProperty("code", out v) && v.ValueKind == JsonValueKind.String) code = v.GetString();
+                        if (res.TryGetProperty("description", out v) && v.ValueKind == JsonValueKind.String) description = v.GetString();
+
+                        // primary: result.ref (most common place for salariat id)
+                        if (res.TryGetProperty("ref", out v) && v.ValueKind == JsonValueKind.String)
+                            regesSalariatId = v.GetString();
+                    }
+
+                    // header bits (optional)
+                    if (root.TryGetProperty("header", out var header) && header.ValueKind == JsonValueKind.Object)
+                    {
+                        if (header.TryGetProperty("operation", out var v) && v.ValueKind == JsonValueKind.String) operation = v.GetString();
+                        if (header.TryGetProperty("authorId", out v) && v.ValueKind == JsonValueKind.String) authorIdStr = v.GetString();
+                    }
+
+                    // fallback: try ReferintaSalariat.Id or any "salariat{... Id: ...}"
+                    if (string.IsNullOrWhiteSpace(regesSalariatId))
+                        regesSalariatId = TryExtractSalariatIdFallback(root);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[POLL] Parse error: " + ex);
+                    await Task.Delay(800, ct);
+                    continue;
+                }
+
+                // simple console log when failure OR missing salariat id
+                if (string.Equals(codeType, "ERROR", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(regesSalariatId))
+                {
+                    try
+                    {
+                        int? personId = null;
+                        string ln = null, fn = null, cnp = null;
+
+                        if (Guid.TryParse(responseId, out var rid))
+                        {
+                            var rec = await _db.Set<RegesSync>()
+                                .AsNoTracking()
+                                .FirstOrDefaultAsync(x => x.MessageResultId.HasValue && x.MessageResultId.Value == rid, ct);
+
+                            if (rec != null)
+                            {
+                                personId = rec.PersonId;
+                                var p = await _db.People.AsNoTracking()
+                                    .Where(x => x.PersonId == rec.PersonId)
+                                    .Select(x => new { x.LastName, x.FirstName, x.NationalId })
+                                    .FirstOrDefaultAsync(ct);
+
+                                ln = p?.LastName; fn = p?.FirstName; cnp = p?.NationalId;
+                            }
+                        }
+                        MessageBox.Show($"[REGES FAIL] resp={responseId} | personId={(personId?.ToString() ?? "?")} | name={(ln ?? "?")} {(fn ?? "")} | cnp={(cnp ?? "?")} | codeType={(codeType ?? "-")} | code={(code ?? "-")} | desc={(description ?? "-")}");
+
+                    }
+                    catch { /* best-effort logging only */ }
+                }
+
+                // update same RegesSync row (saves RegesEmployeeId if present)
+                await UpdateIdsRegesRowAsync(responseId, codeType, code, description, regesSalariatId, operation, authorIdStr);
+                return; // done for this receipt
+            }
+
+            // ---- local fallback extractor (no new DTOs) ----
+            static string TryExtractSalariatIdFallback(JsonElement root)
+            {
+                string found = null;
+
+                void TryPickId(JsonElement obj, ref string target)
+                {
+                    foreach (var p in obj.EnumerateObject())
+                    {
+                        if ((p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) || p.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)) &&
+                            p.Value.ValueKind == JsonValueKind.String)
+                        {
+                            var s = p.Value.GetString();
+                            if (!string.IsNullOrWhiteSpace(s)) { target = s; return; }
+                        }
+                    }
+                }
+
+                void Scan(JsonElement el)
+                {
+                    if (found != null) return;
+                    switch (el.ValueKind)
+                    {
+                        case JsonValueKind.Object:
+                            foreach (var prop in el.EnumerateObject())
+                            {
+                                var lname = prop.Name.ToLowerInvariant();
+
+                                if (lname.Contains("referinta") && prop.Value.ValueKind == JsonValueKind.Object)
+                                {
+                                    foreach (var rp in prop.Value.EnumerateObject())
+                                        if (rp.Name.ToLowerInvariant().Contains("salariat") && rp.Value.ValueKind == JsonValueKind.Object)
+                                            TryPickId(rp.Value, ref found);
+                                }
+                                if (found != null) break;
+
+                                if (lname.Contains("salariat") && prop.Value.ValueKind == JsonValueKind.Object)
+                                    TryPickId(prop.Value, ref found);
+                                if (found != null) break;
+
+                                Scan(prop.Value);
+                                if (found != null) break;
+                            }
+                            break;
+
+                        case JsonValueKind.Array:
+                            foreach (var item in el.EnumerateArray())
+                            {
+                                Scan(item);
+                                if (found != null) break;
+                            }
+                            break;
+                    }
+                }
+
+                try { Scan(root); } catch { }
+                return found;
+            }
+        }
+
+        private async Task UpdateIdsRegesRowAsync(
+     string responseId,
+     string codeType,
+     string code,
+     string description,
+     string regesRefStr,
+     string operation,
+     string authorIdStr)
+        {
+            try
+            {
+                if (!Guid.TryParse(responseId, out var rid))
+                {
+                    Debug.WriteLine($"[DB] Invalid responseId (not GUID): {responseId}");
+                    return;
+                }
+
+                var rec = await _db.Set<RegesSync>()
+                    .FirstOrDefaultAsync(x => x.MessageResultId.HasValue && x.MessageResultId.Value == rid);
+
+                if (rec == null)
+                {
+                    Debug.WriteLine($"[DB] No RegesSync row for responseId={responseId}");
+                    return;
+                }
+
+                // status + error
+                var isError = string.Equals(codeType, "ERROR", StringComparison.OrdinalIgnoreCase);
+                rec.Status = isError ? "Error" : "Success";
+                rec.ErrorMessage = isError ? description : null;
+
+                // ✅ Save REGES salariat ID into the SAME row
+                if (!string.IsNullOrWhiteSpace(regesRefStr) && Guid.TryParse(regesRefStr, out var regesId))
+                    rec.RegesEmployeeId = regesId;
+
+                // optional: keep author in sync
+                if (!string.IsNullOrWhiteSpace(authorIdStr) && Guid.TryParse(authorIdStr, out var aid))
+                    rec.AuthorId = aid;
+
+                rec.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+
+                Debug.WriteLine($"[DB] Updated RegesSync: status={rec.Status}, RegesEmployeeId={rec.RegesEmployeeId}, code={code}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[DB] Save error: " + ex);
+                throw;
+            }
         }
 
         private Task SaveAsyncResultAsync(int personId, string receiptId, MessageResult r)

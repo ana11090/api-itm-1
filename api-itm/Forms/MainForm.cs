@@ -1,5 +1,6 @@
 ﻿using api_itm.Infrastructure; // TabManager
 using api_itm.UserControler;   // ControlSidebarMenu
+using api_itm.UserControler.Contracts;
 using api_itm.UserControler.Employee;
 using api_itm.UserControler.UserProfile;
 using Microsoft.Extensions.DependencyInjection;
@@ -133,7 +134,13 @@ namespace api_itm
                             employeeView.Dock = DockStyle.Fill;
                             return employeeView;
                     }
-
+                    switch (item)
+                    {
+                        case "Inregistrare contracte":
+                            var inregistrareContracteView = Program.App.Services.GetRequiredService<ControlerAddContractsView>();
+                            inregistrareContracteView.Dock = DockStyle.Fill;
+                            return inregistrareContracteView;
+                    }
                     // Fallback placeholder
                     return new Label
                     {
@@ -158,8 +165,8 @@ namespace api_itm
             _menu.BuildMenu(new[]
             {
                 ("Profil utilizator",    null ),
-                ("Salariat",   new[] { "Adaugare date salariati", "HG Agreement", "Employment Agreement", "Supplier Agreements" }),
-                ("Contract", new[] { " Agreements contract" })
+                ("Salariati",   new[] { "Adaugare date salariati", "HG Agreement", "Employment Agreement", "Supplier Agreements" }),
+                ("Contracte", new[] { "Inregistrare contracte" })
               //  ("Financial Reports", new[] { "Income Statement", "Balance Sheet", "Profit and Loss", "Cash Flow" }),
                // ("HR Reports",        new[] { "Employee Performance", "Attendance Record", "Employee Satisfaction" }),
                // ("Labels",            new[] { "Addresses" })
