@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace api_itm.Data.Entity.Ru.Contracts
+namespace api_itm.Data.Entity.Ru.Contracts.Work
 {
     [Table("norma")]
     public class WorkSchedule

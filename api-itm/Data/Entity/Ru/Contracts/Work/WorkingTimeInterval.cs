@@ -2,7 +2,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace api_itm.Data.Entity.Ru.Contracts
+namespace api_itm.Data.Entity.Ru.Contracts.Work
 {
     [Table("intervaltimpmunca")]
     public class WorkingTimeInterval

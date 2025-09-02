@@ -1,4 +1,6 @@
-﻿using api_itm.Data.Entity.Ru.Salary;
+﻿using api_itm.Data.Configurations.Salary;
+using api_itm.Data.Entity.Ru.Contracts.Work;
+using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Mappers;
 using api_itm.Infrastructure.Sessions;
@@ -24,8 +26,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using api_itm.Data.Configurations.Salary;
-
 using static api_itm.Program;
 
 namespace api_itm.UserControler.Contracts
@@ -777,6 +777,39 @@ namespace api_itm.UserControler.Contracts
                .Select(w=> w.WorkScheduleCode)
                .FirstOrDefaultAsync();
 
+            var workingTimeIntervalCode = await _db.WorkingTimeIntervals
+               .Where(wt => wt.WorkingTimeIntervalId == c.WorkTimeIntervalId)
+               .Select(wt => wt.WorkingTimeIntervalCode)
+               .FirstOrDefaultAsync();
+
+
+            var workDistributionCode = await _db.WorkDistributionId
+               .Where(wd => wd.WorkDistributionIdId == c.WorkDistributionId)
+               .Select(wd => wd.WorkDistributionIdCode)
+               .FirstOrDefaultAsync(); //WorkDistributionIds
+
+            Debug.WriteLine("workDistributionCode: " + workDistributionCode);
+
+            var workTimeAllocationCode = await _db.WorkTimeAllocation
+              .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
+              .Select(wta => wta.WorkTimeAllocationCode)
+              .FirstOrDefaultAsync(); //ShiftType
+
+            var typeContractRuCode = await _db.TypeContractRu
+             .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
+             .Select(tyr => tyr.TypeContractRuCode)
+             .FirstOrDefaultAsync();//TypeContractRu
+
+            var typeContractDurationCode = await _db.ContractTypeDuration
+             .Where(tcd => tcd.ContractTypeDurationCode == c.DurationTypeId.ToString())
+             .Select(tcd => tcd.ContractTypeDurationCode)
+             .FirstOrDefaultAsync(); //ContractTypeDuration
+
+
+            var shiftTypeCode = await _db.ShiftType
+             .Where(shift => shift.ShiftTypeId == c.ids.ToString())
+             .Select(shift => shift.ContractTypeDurationCode)
+             .FirstOrDefaultAsync(); //ShiftType
             Debug.WriteLine($"[DEBUG] Contract {c.IdContract} | FunctionStatId={c.FunctionStatId} => EducationLevelCode='{educationLevelCode}'");
 
             // 3b) SPORURI from contracte_sporuri x tipspor (by contract)
@@ -868,18 +901,18 @@ namespace api_itm.UserControler.Contracts
                 {
                     Norma = workingscheduleCode,
                     Durata = c.ContractDuration.HasValue ? (int?)Convert.ToInt32(c.ContractDuration.Value) : null,
-                    IntervalTimp = null,
-                    Repartizare = null,
-                    RepartizareMunca = null,
+                    IntervalTimp = workingTimeIntervalCode,
+                    Repartizare = workDistributionCode, //cateodata id ul este 0 si nu apare
+                    RepartizareMunca = workTimeAllocationCode, //ex. "Zilnic"  //cateodata id ul este 0 si nu apare
                     InceputInterval = inceputInterval,
                     SfarsitInterval = sfarsitInterval,
-                    NotaRepartizareMunca = null,
-                    TipTura = null,
-                    ObservatiiTipTuraAlta = null
+                    //NotaRepartizareMunca = null,
+                    //TipTura = shiftTypeCode,
+                    //ObservatiiTipTuraAlta = null
                 },
 
-                TipContract = null,
-                TipDurata = null,
+                TipContract = typeContractRuCode,
+                TipDurata = typeContractDurationCode,
                 TipNorma = null,
                 TipLocMunca = c.Headquarters,
                 JudetLocMunca = null,
