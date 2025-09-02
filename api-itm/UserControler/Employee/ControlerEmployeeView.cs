@@ -4,6 +4,7 @@ using api_itm.Data.Entity.Ru;
 using api_itm.Infrastructure.Mappers;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Infrastructure;
+using System.Reflection;
 
 using api_itm.Models.Employee;
 using api_itm.Models.Reges;      
@@ -46,7 +47,7 @@ namespace api_itm.UserControler.Employee
         private const string RowNoColName = "No";
         private const string PersonIdPropertyName = "personId";
 
-        // ===================== REGES API SETTINGS (keep these in config in real app) =====================
+        // ===================== REGES API SETTINGS =====================
         private const string BaseUrl = "https://api.dev.inspectiamuncii.org/";   // <- set your actual API host
         private const string InregistrareSalariatUrl = "api/Salariat";
 
@@ -54,6 +55,11 @@ namespace api_itm.UserControler.Employee
         private const string ReadMessageUrl = "api/Status/ReadMessage";   // POST, no body
         private const string CommitReadUrl = "api/Status/CommitRead";    // POST, no body
 
+        #if DEBUG
+                private const bool DEBUG_SHOW_PERSON_ID = true;
+        #else
+        private const bool DEBUG_SHOW_PERSON_ID = false;
+        #endif
 
         private HashSet<int> _personsWithRegesId = new HashSet<int>();
 
@@ -207,6 +213,20 @@ namespace api_itm.UserControler.Employee
             ResumeLayout();
         }
 
+
+
+        /// <summary>
+        /// Wires up all DataGridView behaviors for dgvViewSalariati.
+        /// </summary>
+        /// <remarks>
+        /// - Commits checkbox edits immediately so <see cref="CellValueChanged"/> fires without leaving the cell.
+        /// - When the Select column changes, updates the “Selected/Total” counter.
+        /// - After data binding completes, ensures the special columns (Select + No) exist/are ordered,
+        ///   renumbers rows (1..N), refreshes the counters, and applies row coloring based on REGES IDs.
+        /// - Keeps row numbers and counters correct after sorting, adding, or removing rows.
+        /// - On row double-click, opens a JSON preview for the selected person.
+        /// </remarks>
+
         private void WireGrid()
         {
             dgvViewSalariati.CurrentCellDirtyStateChanged += (_, __) =>
@@ -307,6 +327,7 @@ namespace api_itm.UserControler.Employee
 
             var rows =
                 await (from p in _db.People
+                       where p.Status == "A"
 
                        join c in _db.Countries
                             on p.DomicileCountryId equals c.CountryId into cgrp
@@ -332,10 +353,11 @@ namespace api_itm.UserControler.Employee
                             on p.DisabilityGradeId equals gh.DisabilityGradeId into ghgrp
                        from gh in ghgrp.DefaultIfEmpty()
 
+                         let isPassport = true
                        orderby p.PersonId
                        select new
                        {
-                           personId = p.PersonId,                 // hidden
+                           personId = p.PersonId,
                            codSiruta = p.SirutaCode,
                            adresa = p.Address,
                            cnp = p.NationalId,
@@ -343,29 +365,35 @@ namespace api_itm.UserControler.Employee
                            prenume = p.FirstName,
                            dataNastere = p.BirthDate,
                            Nationalitate = RegesJson.FixText(c.CountryNameRevisal),
-                           TaraDomiciliu = RegesJson.FixText((c.CountryNameRevisal)) ,
-
-
+                           TaraDomiciliu = RegesJson.FixText(c.CountryNameRevisal),
                            tipActIdentitate = a != null ? a.IdentityDocumentName : null,
                            apatrid = ap != null ? ap.PaPartidName : null,
-
                            dataInceputAutorizatie = p.WorkPermitStartDate,
                            dataSfarsitAutorizatie = p.WorkPermitEndDate,
                            tipAutorizatie = (string?)null,
                            tipAutorizatieExceptie = (string?)null,
                            numarAutorizatie = (string?)null,
-
                            tipHandicap = th != null ? th.DisabilityTypeName : null,
                            gradHandicap = gh != null ? gh.DisabilityGradeName : null,
                            dataCertificatHandicap = p.HandicapCertificateDate,
                            numarCertificatHandicap = p.HandicapCertificateNumber,
                            dataValabilitateCertificatHandicap = (DateTime?)null,
-
                            mentiuni = p.Notes,
-                           motivRadiere = (string?)null
+                           motivRadiere = (string?)null,
+                           detaliiSalariatStrain =
+    (isPassport)
+        ? new api_itm.Models.Employee.DetaliiSalariatStrain
+        {
+            DataInceputAutorizatie = p.WorkPermitStartDate.Value ,
+            DataSfarsitAutorizatie = p.WorkPermitEndDate.Value,
+            TipAutorizatie = null,
+            TipAutorizatieExceptie = null,
+            NumarAutorizatie = null
+        }
+        : null
                        })
-                      .AsNoTracking()
-                      .ToListAsync();
+    .AsNoTracking()
+    .ToListAsync();
 
             var withRegesNullable = await _db.Set<RegesSync>()
       .Where(r => r.RegesEmployeeId.HasValue)
@@ -382,12 +410,13 @@ namespace api_itm.UserControler.Employee
             dgvViewSalariati.AutoGenerateColumns = true;
             dgvViewSalariati.DataSource = rows;
 
-            // 👇 ADD THIS after DataSource
+            //  after DataSource
             ApplyRowColorsByRegesId();
         }
 
         private void EnsureSpecialColumns()
         {
+            // 1) Select checkbox (first column)
             if (!dgvViewSalariati.Columns.Contains(SelectColName))
             {
                 var chk = new DataGridViewCheckBoxColumn
@@ -402,6 +431,7 @@ namespace api_itm.UserControler.Employee
                 dgvViewSalariati.Columns.Insert(0, chk);
             }
 
+            // 2) Row number (second column)
             if (!dgvViewSalariati.Columns.Contains(RowNoColName))
             {
                 var no = new DataGridViewTextBoxColumn
@@ -414,16 +444,45 @@ namespace api_itm.UserControler.Employee
                 dgvViewSalariati.Columns.Insert(1, no);
             }
 
+            // 3) PersonId column (auto-generated from projection new { personId = p.PersonId, ... })
+            //    In DEBUG we show it and put it right after the row number; in Release it stays hidden.
+            DataGridViewColumn? pidCol = null;
+
             foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
             {
                 if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
                 {
-                    // hide the PersonId column from the UI
-                    col.Visible = false;
+                    pidCol = col;
                     break;
                 }
             }
 
+            // If somehow AutoGenerateColumns missed it, create a bound debug column
+            if (pidCol == null && DEBUG_SHOW_PERSON_ID)
+            {
+                pidCol = new DataGridViewTextBoxColumn
+                {
+                    Name = "PersonIdDebug",
+                    DataPropertyName = PersonIdPropertyName, // binds to anonymous type property "personId"
+                    HeaderText = "PersonId",
+                    ReadOnly = true,
+                    AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells
+                };
+                dgvViewSalariati.Columns.Insert(2, pidCol);
+            }
+
+            if (pidCol != null)
+            {
+                pidCol.Visible = DEBUG_SHOW_PERSON_ID;
+                if (DEBUG_SHOW_PERSON_ID)
+                {
+                    pidCol.HeaderText = "PersonId";
+                    pidCol.ReadOnly = true;
+                    pidCol.DisplayIndex = 2; // after Select + No
+                }
+            }
+
+            // keep special columns in front
             dgvViewSalariati.Columns[SelectColName].DisplayIndex = 0;
             dgvViewSalariati.Columns[RowNoColName].DisplayIndex = 1;
         }
@@ -577,11 +636,67 @@ namespace api_itm.UserControler.Employee
             // MessageBox.Show($"Trimise: {ids.Count}\nSucces: {ok}\nErori: {fail}", "Rezultat trimitere");
         }
 
+        private int? GetPersonIdFromRow(DataGridViewRow row)
+        {
+            if (row == null) return null;
+
+            // 1) Preferred: read from the bound object (anonymous type has "personId")
+            var item = row.DataBoundItem;
+            if (item != null)
+            {
+                var prop = item.GetType().GetProperty(
+                    "personId",
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+
+                if (prop != null)
+                {
+                    var value = prop.GetValue(item, null);
+                    if (value == null) return null;
+
+                    if (value is int i) return i;
+
+                    var ni = value as int?;
+                    if (ni.HasValue) return ni.Value;
+
+                    if (int.TryParse(value.ToString(), out var parsed)) return parsed;
+                    return null;
+                }
+            }
+
+            // 2) Fallback: read from the cell whose DataPropertyName == "personId"
+            foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
+            {
+                if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var val = row.Cells[col.Index].Value;
+                    if (val == null || val == DBNull.Value) return null;
+
+                    if (val is int i) return i;
+
+                    var ni = val as int?;
+                    if (ni.HasValue) return ni.Value;
+
+                    if (int.TryParse(val.ToString(), out var parsed)) return parsed;
+                    return null;
+                }
+            }
+
+            return null;
+        }
+        
+        /// <summary>
+        /// Return the json preview on click on selected row 
+        /// </summary>
+        /// <returns></returns>
         private async Task PreviewSelectedRowJsonAsync()
         {
             if (dgvViewSalariati.CurrentRow == null) return;
 
             int? personId = GetPersonIdFromRow(dgvViewSalariati.CurrentRow);
+#if DEBUG
+            Debug.WriteLine($"[DEBUG] Selected row personId={personId}");
+#endif
+
             if (personId == null)
             {
                 MessageBox.Show("Cannot detect PersonId for the selected row.");
@@ -591,19 +706,20 @@ namespace api_itm.UserControler.Employee
             await PreviewJsonForPerson(personId.Value);
         }
 
-        private int? GetPersonIdFromRow(DataGridViewRow row)
-        {
-            foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
-            {
-                if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
-                {
-                    var val = row.Cells[col.Index].Value;
-                    if (val == null || val == DBNull.Value) return null;
-                    if (int.TryParse(val.ToString(), out var pid)) return pid;
-                }
-            }
-            return null;
-        }
+
+        //private int? GetPersonIdFromRow(DataGridViewRow row)
+        //{
+        //    foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
+        //    {
+        //        if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
+        //        {
+        //            var val = row.Cells[col.Index].Value;
+        //            if (val == null || val == DBNull.Value) return null;
+        //            if (int.TryParse(val.ToString(), out var pid)) return pid;
+        //        }
+        //    }
+        //    return null;
+        //}
 
         //private async Task PreviewJsonForPerson(int personId)
         //{
@@ -665,77 +781,120 @@ namespace api_itm.UserControler.Employee
         private async Task<EmployeeView> BuildPayloadForPerson(int personId)
         {
             var p = await _db.People.FirstOrDefaultAsync(x => x.PersonId == personId);
-            if (p == null) throw new InvalidOperationException($"Person {personId} not found.");
+            if (p == null)
+                throw new InvalidOperationException($"Person {personId} not found.");
 
-            async Task<string> SafeLookup(Func<Task<string>> q) { try { return await q() ?? ""; } catch { return ""; } }
+            async Task<string> SafeLookup(Func<Task<string>> query)
+            {
+                try { return await query() ?? ""; } catch { return ""; }
+            }
 
-            // RAW names straight from DB (no enum/token mapping)
-            // RAW names -> FIX THEM here
+            // Lookups
             var nationalitateName = RegesJson.FixText(await SafeLookup(() =>
-    _db.NationalityTypes.Where(n => n.NationalityTypeId == p.NationalityTypeId)
-       .Select(n => n.NationalityTypeName).FirstOrDefaultAsync()));
+                _db.NationalityTypes
+                    .Where(n => n.NationalityTypeId == p.NationalityTypeId)
+                    .Select(n => n.NationalityTypeName)
+                    .FirstOrDefaultAsync()));
 
             var taraDomiciliuName = RegesJson.FixText(await SafeLookup(() =>
-                _db.Countries.Where(c => c.CountryId == p.DomicileCountryId)
-                   .Select(c => c.CountryName).FirstOrDefaultAsync()));
+                _db.Countries
+                    .Where(c => c.CountryId == p.DomicileCountryId)
+                    .Select(c => c.CountryName)
+                    .FirstOrDefaultAsync()));
 
+            // Apply your overwrite logic
+            nationalitateName = RegesJson.Norma(taraDomiciliuName);
 
-
-            var tipActCodeRaw = RegesJson.FixText((await SafeLookup(() =>
+            var tipActCodeRaw = RegesJson.FixText(await SafeLookup(() =>
                 _db.IdentityDocumentTypes
-                   .Where(a => a.IdentityDocumentTypeId == p.IdentityDocTypeId)
-                   .Select(a => a.IdentityDocumentCode)
-                   .FirstOrDefaultAsync())  ));
-
-             nationalitateName = RegesJson.Norma(taraDomiciliuName);
+                    .Where(a => a.IdentityDocumentTypeId == p.IdentityDocTypeId)
+                    .Select(a => a.IdentityDocumentCode)
+                    .FirstOrDefaultAsync()));
 
             var apatridCodeRaw = await SafeLookup(() =>
                 _db.TypePapartide
-                   .Where(s => s.IdTypePapartid == p.IdTipApatrid)
-                   .Select(s => s.CodPaPatrid)
-                   .FirstOrDefaultAsync());
+                    .Where(s => s.IdTypePapartid == p.IdTipApatrid)
+                    .Select(s => s.CodPaPatrid)
+                    .FirstOrDefaultAsync());
 
-            Debug.WriteLine("apatridCodeRaw:" + apatridCodeRaw);
             var tipHandicapCodeRaw = await SafeLookup(() =>
                 _db.DisabilityTypes
-                   .Where(h =>
-                       h.DisabilityTypeId == p.HandicapTypeId &&
-                       h.DisabilityTypeId >= 1 &&
-                       h.DisabilityTypeId <= 10)
-                   .Select(h => h.DisabilityTypeCode)
-                   .FirstOrDefaultAsync());
-
-            Debug.WriteLine("tipHandicapCodeRaw:" + tipHandicapCodeRaw);
-
+                    .Where(h => h.DisabilityTypeId == p.HandicapTypeId)
+                    .Select(h => h.DisabilityTypeCode)
+                    .FirstOrDefaultAsync());
 
             var gradHandicapCodeRaw = await SafeLookup(() =>
                 _db.DisabilityGrades
-                   .Where(g => g.DisabilityGradeId == p.DisabilityGradeId)
-                   .Select(g => g.DisabilityGradeCode)
-                   .FirstOrDefaultAsync());
+                    .Where(g => g.DisabilityGradeId == p.DisabilityGradeId)
+                    .Select(g => g.DisabilityGradeCode)
+                    .FirstOrDefaultAsync());
 
             var gradInvaliditateCodeRaw = await SafeLookup(() =>
                 _db.DisabilityGrades
-                   .Where(g => g.DisabilityGradeId == p.InvalidityGradeId)
-                   .Select(g => g.DisabilityGradeCode)
-                   .FirstOrDefaultAsync());
+                    .Where(g => g.DisabilityGradeId == p.InvalidityGradeId)
+                    .Select(g => g.DisabilityGradeCode)
+                    .FirstOrDefaultAsync());
 
-     
+            var typeWorkPermit = await SafeLookup(() =>
+     _db.WorkPermitTypes
+         .Where(w => w.WorkPermitId == p.WorkPermitTypeId)
+         .Select(w => w.WorkPermitName)
+         .FirstOrDefaultAsync());
+
+            Debug.WriteLine($"Work permit name: {typeWorkPermit ?? "(null)"}");
+
+
             if (p.InvalidityGradeId.HasValue)
-                gradInvaliditateCodeRaw = $"Grad{p.InvalidityGradeId.Value}";  
+                gradInvaliditateCodeRaw = $"Grad{p.InvalidityGradeId.Value}";
 
-            // Build info with **raw** strings
+            // Map core data
             var info = EmployeeMapper.FromPerson(
                 p,
                 nationalitateName,
                 taraDomiciliuName,
-                tipActCodeRaw,        // RAW
-               // apatridCodeRaw,       // RAW
-                tipHandicapCodeRaw,   // RAW
-                gradHandicapCodeRaw,   // RAW
+                tipActCodeRaw,
+                tipHandicapCodeRaw,
+                gradHandicapCodeRaw,
                 gradInvaliditateCodeRaw
             );
-             
+
+            Debug.WriteLine("p.IdentityDocTypeId:" + p.IdentityDocTypeId);
+            // Add DetaliiSalariatStrain if using passport
+            if (p.IdentityDocTypeId != 0 &&
+     p.IdentityDocTypeId != 1 &&
+     p.IdentityDocTypeId != 2 &&
+     p.IdentityDocTypeId != 7 &&
+     p.IdentityDocTypeId != 9)
+            {
+                var tipAutorizatieRaw = await SafeLookup(() =>
+         _db.WorkPermitTypes
+             .Where(w => w.WorkPermitId == p.WorkPermitTypeId)
+             .Select(w => w.WorkPermitName)
+             .FirstOrDefaultAsync());
+
+                TipAutorizatie? tipAutorizatie = null;
+
+                if (!string.IsNullOrWhiteSpace(tipAutorizatieRaw) &&
+                    Enum.TryParse<TipAutorizatie>(tipAutorizatieRaw, out var parsed))
+                {
+                    tipAutorizatie = parsed;
+                }
+
+                Debug.WriteLine("tipAutorizatieRaw:" + tipAutorizatieRaw);
+
+                var numarAutorizatieRaw = p.ApprovalNumber ?? ""; // or p.WorkPermitNumber
+
+                info.DetaliiSalariatStrain = new DetaliiSalariatStrain
+                {
+                    DataInceputAutorizatie = p.WorkPermitStartDate,
+                    DataSfarsitAutorizatie = p.WorkPermitEndDate,
+                    TipAutorizatie = tipAutorizatieRaw,
+                    TipAutorizatieExceptie = typeWorkPermit,
+                    NumarAutorizatie = numarAutorizatieRaw
+                };
+            }
+
+            // Build full payload
             var payload = new EmployeeView
             {
                 Type = "salariat",
@@ -754,9 +913,11 @@ namespace api_itm.UserControler.Employee
             };
 
             Debug.WriteLine($"Built payload for personId={personId}: {JsonSerializer.Serialize(payload, _jsonOpts)}");
-
+            // color after data binds
+            ApplyRowColorsByRegesId();
             return payload;
         }
+
 
         // Step 1: Send one payload -> get synchronous MessageResponse (recipisa)
         private async Task<SyncResponse> SendOneAsync(int personId)
@@ -1008,6 +1169,8 @@ namespace api_itm.UserControler.Employee
             await _db.SaveChangesAsync();
         }
 
+
+
         private async Task PollForResultAndUpdateAsync(string expectedReceiptId, CancellationToken ct)
         {
             using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
@@ -1249,10 +1412,13 @@ namespace api_itm.UserControler.Employee
             return SessionState.Tokens.AccessToken;
         }
 
+
         private void ControlerEmployeeView_Load(object sender, EventArgs e)
         {
 
         }
+
+
     }
 
     // ==================== DTOs to match REGES docs (minimal) ====================

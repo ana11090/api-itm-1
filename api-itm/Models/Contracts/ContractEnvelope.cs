@@ -5,13 +5,16 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using api_itm.Models.Contracts.Envelope;
 
 namespace api_itm.Models.Contracts
 {
-    public class ContractEnvelope
+    public sealed class ContractEnvelope
     {
         [JsonPropertyName("$type")] public string Type { get; set; } = "contract";
-        public Header Header { get; set; } = new();
-        public ContinutContract Continut { get; set; } = new();
+
+        [JsonPropertyName("header")] public Header Header { get; set; } = new();
+
+        [JsonPropertyName("continut")] public ContinutContract Continut { get; set; } = new();
     }
 }

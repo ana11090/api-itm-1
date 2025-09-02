@@ -2,23 +2,28 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace api_itm.Models.Contracts.Envelope
 {
-    public class TimpMunca
+
+    public sealed class TimpMunca
     {
-        public string? Norma { get; set; }
-        public int? Durata { get; set; }
-        public string? IntervalTimp { get; set; }
-        public string? Repartizare { get; set; }
-        public string? RepartizareMunca { get; set; }
+        // Many are domain codes — keep as strings
+        [JsonPropertyName("norma")] public string? Norma { get; set; }
+        [JsonPropertyName("durata")] public int? Durata { get; set; }
+        [JsonPropertyName("intervalTimp")] public string? IntervalTimp { get; set; }
+        [JsonPropertyName("repartizare")] public string? Repartizare { get; set; }
+        [JsonPropertyName("repartizareMunca")] public string? RepartizareMunca { get; set; }
 
-        public DateTime? InceputInterval { get; set; }
-        public DateTime? SfarsitInterval { get; set; }
+        [JsonPropertyName("inceputInterval")] public DateTime? InceputInterval { get; set; }
+        [JsonPropertyName("sfarsitInterval")] public DateTime? SfarsitInterval { get; set; }
 
-        public string? NotaRepartizareMunca { get; set; }
-        public string? TipTura { get; set; }
-        public string? ObservatiiTipTuraAlta { get; set; }
+        [JsonPropertyName("notaRepartizareMunca")] public string? NotaRepartizareMunca { get; set; }
+
+        [JsonPropertyName("tipTura")] public string? TipTura { get; set; }
+
+        [JsonPropertyName("observatiiTipTuraAlta")] public string? ObservatiiTipTuraAlta { get; set; }
     }
 }

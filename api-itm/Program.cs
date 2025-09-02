@@ -32,6 +32,14 @@ namespace api_itm
                        .EnableDetailedErrors()
             );
 
+            // ADD (keeps your existing AddDbContext)
+            builder.Services.AddDbContextFactory<AppDbContext>(options =>
+                options.UseNpgsql("Host=193.231.20.42;Port=5432;Database=direc_restore;Username=usrru;Password=R3sur$e")
+                       .LogTo(Console.WriteLine)
+                       .EnableSensitiveDataLogging()
+                       .EnableDetailedErrors()
+            );
+
             // DI registrations
             builder.Services.AddSingleton<ISessionContext, SessionContext>();
             builder.Services.AddScoped<LoginForm>();

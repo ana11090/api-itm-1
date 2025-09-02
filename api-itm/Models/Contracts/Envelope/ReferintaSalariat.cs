@@ -7,9 +7,10 @@ using System.Threading.Tasks;
 
 namespace api_itm.Models.Contracts.Envelope
 {
-    public class ReferintaSalariat
+    public sealed class ReferintaSalariat
     {
         [JsonPropertyName("$type")] public string Type { get; set; } = "referinta";
-        public string Id { get; set; } = default!;
+
+        [JsonPropertyName("id")] public string Id { get; set; } = default!;
     }
 }

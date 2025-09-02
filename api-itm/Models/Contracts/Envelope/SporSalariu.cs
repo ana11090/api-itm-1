@@ -2,15 +2,21 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace api_itm.Models.Contracts.Envelope
 {
-    public class SporSalariu
+    public sealed class SporSalariu
     {
-        public bool IsProcent { get; set; }
-        public decimal Valoare { get; set; }
-        public string? Moneda { get; set; }
-        public SporTip Tip { get; set; } = new();
+        [JsonPropertyName("isProcent")] public bool IsProcent { get; set; }
+
+        [JsonPropertyName("valoare")] public decimal Valoare { get; set; }
+
+        // Optional; present in the 2nd item of the sample
+        [JsonPropertyName("moneda")] public string? Moneda { get; set; }
+
+        [JsonPropertyName("tip")] public SporTip Tip { get; set; } = new();
     }
+
 }

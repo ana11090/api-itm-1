@@ -69,6 +69,12 @@ namespace api_itm.Models.Employee
        
     }
 
+    public enum TipAutorizatie // used in sending the api in controler employee view
+    {
+        Standard,
+        Exceptie
+    }
+
     public class Localitate
     {
         [JsonPropertyName("codSiruta")]
@@ -84,18 +90,21 @@ namespace api_itm.Models.Employee
     public class DetaliiSalariatStrain
     {
         [JsonPropertyName("dataInceputAutorizatie")]
-        public DateTime DataInceputAutorizatie { get; set; }
+        public DateTime? DataInceputAutorizatie { get; set; }
 
         [JsonPropertyName("dataSfarsitAutorizatie")]
-        public DateTime DataSfarsitAutorizatie { get; set; }
+        public DateTime? DataSfarsitAutorizatie { get; set; }
 
         [JsonPropertyName("tipAutorizatie")]
-        public string TipAutorizatie { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? TipAutorizatie { get; set; }
 
         [JsonPropertyName("tipAutorizatieExceptie")]
-        public string TipAutorizatieExceptie { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? TipAutorizatieExceptie { get; set; }
 
         [JsonPropertyName("numarAutorizatie")]
-        public string NumarAutorizatie { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? NumarAutorizatie { get; set; }
     }
 }

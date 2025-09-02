@@ -1,19 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
 
 namespace api_itm.Models.Contracts.Envelope
 {
-    public class SporTip
+    [NotMapped]
+    public sealed class SporTip
     {
         [JsonPropertyName("$type")] public string Type { get; set; } = default!;
-        public Referinta Referinta { get; set; } = new();
-        public string Nume { get; set; } = default!;
+        [JsonPropertyName("referinta")] public Referinta Referinta { get; set; } = new();
+        [JsonPropertyName("nume")] public string Nume { get; set; } = default!;
     }
 
+    [NotMapped]
     public class Referinta
     {
         [JsonPropertyName("$type")] public string Type { get; set; } = "referinta";

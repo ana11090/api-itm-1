@@ -2,13 +2,14 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace api_itm.Models.Contracts.Envelope
 {
-    public class Cor
+    public sealed class Cor
     {
-        public int Cod { get; set; }
-        public int Versiune { get; set; }
+        [JsonPropertyName("cod")] public int Cod { get; set; }
+        [JsonPropertyName("versiune")] public int Versiune { get; set; }
     }
 }

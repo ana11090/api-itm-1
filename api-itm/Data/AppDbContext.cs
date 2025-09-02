@@ -1,6 +1,11 @@
 ﻿using api_itm.Data.Entity.api_itm.Domain.Employees;
 using api_itm.Data.Entity.Ru;
+using api_itm.Data.Entity.Ru.Contracts;
 using api_itm.Data.Entity.Ru.Disability;
+using api_itm.Data.Entity.Ru.ForginerWorkAuthorization;
+using api_itm.Data.Entity.Ru.Salary;
+using api_itm.Data.Entity.Ru.Study;
+using api_itm.Models.Contracts.Envelope;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 
@@ -22,6 +27,22 @@ namespace api_itm
         public DbSet<DisabilityCharacter> DisabilityCharacters => Set<DisabilityCharacter>(); // DbSet for County entity from sheme "ru"
 
         public DbSet<RegesSync> RegesSyncs => Set<RegesSync>(); // DbSet for RegesSync entity from sheme "ru"
+        public DbSet<WorkPermitType> WorkPermitTypes => Set<WorkPermitType>(); // DbSet for Employee entity from sheme "api_itm"
+        public DbSet<ContractsRu> ContractsRu => Set<ContractsRu>();
+        public DbSet<EndDateException> EndDateExceptions => Set<EndDateException>();
+
+        public DbSet<SporTip> TypeSpor => Set<SporTip>();
+        public DbSet<ContractState> ContractsState => Set<ContractState>();
+        public DbSet<FunctionStat> FunctionsStat => Set<FunctionStat>(); //FunctionStat
+
+        public DbSet<EducationLevel> EducationLevels => Set<EducationLevel>(); //FunctionStat
+
+        public DbSet<ContractBonusesView> ContractsBonusesView => Set<ContractBonusesView>(); //ContractBonusesView
+        public DbSet<ContractBonuses> ContractsBonuses => Set<ContractBonuses>(); //
+        public DbSet<ContractSalaryBonus> ContractsSalaryBonuses => Set<ContractSalaryBonus>(); //ContractSalaryBonuses
+        public DbSet<WorkSchedule> WorkScheduleNorm => Set<WorkSchedule>(); //WorkSchedule
+        public DbSet<WorkingTimeInterval> WorkingTimeIntervals => Set<WorkingTimeInterval>(); //WorkingTimeInterval
+
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {
