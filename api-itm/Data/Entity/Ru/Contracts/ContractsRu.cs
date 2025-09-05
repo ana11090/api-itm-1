@@ -346,5 +346,7 @@ namespace api_itm.Data.Entity.Ru.Contracts
 
         /// <summary>idrepartizaremunca (integer)</summary>
         public int? WorkDistributionId { get; set; }
+
+        public int? ShiftTypeId { get; set; } 
     }
 }

@@ -145,6 +145,8 @@ namespace api_itm.Data.Configurations
             builder.Property(c => c.EndHour).HasColumnName("ora_sfarsit").HasColumnType("time without time zone");
 
             builder.Property(c => c.WorkDistributionId).HasColumnName("idrepartizaremunca");
+            builder.Property(c => c.ShiftTypeId).HasColumnName("idtiptura");
+
         }
     }
 }

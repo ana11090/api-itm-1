@@ -1,4 +1,5 @@
-﻿using api_itm.Data.Entity.api_itm.Domain.Employees;
+﻿using api_itm.Data.Entity;
+using api_itm.Data.Entity.api_itm.Domain.Employees;
 using api_itm.Data.Entity.Ru;
 using api_itm.Data.Entity.Ru.Contracts;
 using api_itm.Data.Entity.Ru.Contracts.Work;
@@ -48,6 +49,9 @@ namespace api_itm
         public DbSet<ShiftType> ShiftType => Set<ShiftType>();//ShiftType
         public DbSet<TypeContractRu> TypeContractRu => Set<TypeContractRu>();//TypeContractRu
         public DbSet<ContractTypeDuration> ContractTypeDuration => Set<ContractTypeDuration>();//ContractTypeDuration
+        public DbSet<WorkNormType> WorkNormType => Set<WorkNormType>();//WorkNormType
+        public DbSet<County> County => Set<County>();//County
+        public DbSet<RegesContractSync> RegesContractSync => Set<RegesContractSync>();//RegesContractSync
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {

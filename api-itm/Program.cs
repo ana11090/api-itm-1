@@ -57,7 +57,8 @@ namespace api_itm
 
                 // 1) Ensure DB objects exist (no migrations)
                 var db = services.GetRequiredService<AppDbContext>();
-                DbIdRagesSetup.EnsureAsync(db).GetAwaiter().GetResult();
+                DbIdRagesEmployeesSetup.EnsureAsync(db).GetAwaiter().GetResult();
+                DbIdRagesContractsSetup.EnsureAsync(db).GetAwaiter().GetResult();
 
                 // 2) Resolve session + login form
                 var session = services.GetRequiredService<ISessionContext>();

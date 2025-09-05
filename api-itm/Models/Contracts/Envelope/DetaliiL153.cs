@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 namespace api_itm.Models.Contracts.Envelope
 {
+
     public sealed class DetaliiL153
     {
         [JsonPropertyName("anexaL153")] public string? AnexaL153 { get; set; }

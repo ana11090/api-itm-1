@@ -1,4 +1,5 @@
 ﻿using api_itm.Data.Configurations.Salary;
+using api_itm.Data.Entity;
 using api_itm.Data.Entity.Ru.Contracts.Work;
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Infrastructure;
@@ -27,6 +28,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static api_itm.Program;
+using System.Collections; // for IEnumerable
 
 namespace api_itm.UserControler.Contracts
 {
@@ -53,15 +55,42 @@ namespace api_itm.UserControler.Contracts
         private const string BaseUrl = "https://api.dev.inspectiamuncii.org/";   // <- set your actual API host
         private const string InregistrareContractUrl = "api/Contract";
 
-        private HashSet<int> _personsWithRegesId = new HashSet<int>();
+        private const string ContractIdPropertyName = "idContract";
+        private HashSet<int> _contractsWithRegesId = new HashSet<int>();
+
+        // // search
+        // UI
+        private TextBox _txtSearch;
+        private Button _btnClearSearch;
+
+        // data cache
+        private object _allRowsData;    // original full List<anon>
 
         private const string ConsumerId = "winforms-dev-1"; // sau string.Empty pentru implicit
+
+        // sort state + cache for current rows (anonymous type)
+        private object _rowsData;                 // List<anon>
+        private Type _rowItemType;               // anon item type
+        private string _lastSortProp;            // last sorted property
+        private ListSortDirection _lastSortDir = ListSortDirection.Descending;
+
+        // nulls-last comparer for object keys
+        private static readonly IComparer<object> _nullsLast = Comparer<object>.Create((a, b) =>
+        {
+            if (a == null && b == null) return 0;
+            if (a == null) return 1;    // nulls last
+            if (b == null) return -1;
+            if (a.GetType() == b.GetType() && a is IComparable ca) return ca.CompareTo(b);
+            return string.Compare(a.ToString(), b.ToString(), StringComparison.CurrentCulture);
+        });
 
 #if DEBUG
         private const bool DEBUG_SHOW_PERSON_ID = true;
 #else
         private const bool DEBUG_SHOW_PERSON_ID = false;
 #endif
+
+
         public ControlerAddContractsView(IDbContextFactory<AppDbContext> db, ISessionContext session)
         {
             InitializeComponent();
@@ -123,6 +152,8 @@ namespace api_itm.UserControler.Contracts
             dgvAddContracts.RowsRemoved += (_, __) => { RenumberRows(); UpdateCounts(); };
 
             dgvAddContracts.CellDoubleClick += async (_, __) => await PreviewSelectedRowJsonAsync();
+            dgvAddContracts.ColumnHeaderMouseClick += (_, e) => OnHeaderClick(e.ColumnIndex);
+
         }
 
         /// <summary>
@@ -241,13 +272,34 @@ namespace api_itm.UserControler.Contracts
                 ApplyRowColorsByRegesId();
             };
 
-            //dgvAddContracts.Sorted += (_, __) => RenumberRowsContracts();
-            //dgvAddContracts.RowsAdded += (_, __) => { RenumberRowsContracts(); UpdateCounts(); };
-            //dgvAddContracts.RowsRemoved += (_, __) => { RenumberRowsContracts(); UpdateCounts(); };
+            // // search
 
+            var lblSearch = new Label
+            {
+                Text = "Căutare:",
+                AutoSize = true,
+                Margin = new Padding(24, 3, 6, 0)
+            };
+            _txtSearch = new TextBox
+            {
+                Width = 220,
+                Margin = new Padding(0, 0, 6, 0)
+            };
+            _btnClearSearch = new Button
+            {
+                Text = "X",
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 0)
+            };
 
-            // color after data binds
-            // ApplyRowColorsByRegesId();
+            topFlow.Controls.Add(lblSearch);
+            topFlow.Controls.Add(_txtSearch);
+            topFlow.Controls.Add(_btnClearSearch);
+
+            // events
+            _txtSearch.TextChanged += (_, __) => ApplySearchFilter();
+            _btnClearSearch.Click += (_, __) => { _txtSearch.Clear(); _txtSearch.Focus(); };
+
 
             dgvAddContracts.Dock = DockStyle.Fill;
             dgvAddContracts.AutoGenerateColumns = true;
@@ -343,6 +395,8 @@ namespace api_itm.UserControler.Contracts
                     pidCol.DisplayIndex = 2; // after Select + No
                 }
             }
+
+            EnableProgrammaticSortOnDataColumns();
 
             // keep special columns in front
             //dgvAddContracts.Columns[SelectColName].DisplayIndex = 0;
@@ -608,39 +662,38 @@ namespace api_itm.UserControler.Contracts
                  .OrderBy(c => c.IdContract)
                  .ThenBy(c => c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
                  .Select(c => new
-                {
-                    idContract = c.IdContract,
-                    personId = (int?)null,
-                    dataConsemnare = c.RecordDate,
-                    dataContract = c.ContractDate,
-                    dataInceputContract = c.StartDate,
-                    dataSfarsitContract = c.EndDate,
-                    exceptieDataSfarsitId = c.EndDateExceptionId,
-                    numarContract = c.ContractNumber,
-                    salariu = c.GrossSalary ?? c.BaseSalary ?? c.EmploymentSalary,
-                    tipLocMunca = c.Headquarters,
-                    norma112 = c.Norm112,
-                    durata = c.ContractDuration,
-                    intervalTimpId = c.WorkTimeIntervalId,
-                    repartizareMuncaId = c.WorkDistributionId,
-                    inceputInterval = c.StartHour,
-                    sfarsitInterval = c.EndHour,
-                    statusId = c.ContractStatusId,
-                    modificatLa = c.ModificationDate,
-                    terminareLa = c.TerminationDate,
-                    transferLa = c.TransferDate
-                })
-                .ToListAsync();
+                 {
+                     idContract = c.IdContract,
+                     personId = (int?)null,
+                     dataConsemnare = c.RecordDate,
+                     dataContract = c.ContractDate,
+                     dataInceputContract = c.StartDate,
+                     dataSfarsitContract = c.EndDate,
+                     exceptieDataSfarsitId = c.EndDateExceptionId,
+                     numarContract = c.ContractNumber,
+                     salariu = c.GrossSalary ?? c.BaseSalary ?? c.EmploymentSalary,
+                     tipLocMunca = c.Headquarters,
+                     norma112 = c.Norm112,
+                     durata = c.ContractDuration,
+                     intervalTimpId = c.WorkTimeIntervalId,
+                     repartizareMuncaId = c.WorkDistributionId,
+                     inceputInterval = c.StartHour,
+                     sfarsitInterval = c.EndHour,
+                     statusId = c.ContractStatusId,
+                     modificatLa = c.ModificationDate,
+                     terminareLa = c.TerminationDate,
+                     transferLa = c.TransferDate
+                 })
+                 .ToListAsync();
 
-            var withRegesNullable = await db.Set<RegesSync>()
-                .Where(r => r.RegesEmployeeId.HasValue)
-                .Select(r => r.PersonId)
-                .Distinct()
-                .ToListAsync();
+            var greenContractIds = await db.Set<RegesContractSync>()
+    .Where(r => r.RegesContractId != null && r.IdContract != null)
+    .Select(r => r.IdContract!.Value)
+    .Distinct()
+    .ToListAsync();
+             
 
-            _personsWithRegesId = new HashSet<int>(
-                withRegesNullable.Where(pid => pid.HasValue).Select(pid => pid.Value)
-            );
+            _contractsWithRegesId = new HashSet<int>(greenContractIds);
 
             dgvAddContracts.AutoGenerateColumns = true;
             dgvAddContracts.DataSource = rows;
@@ -648,7 +701,7 @@ namespace api_itm.UserControler.Contracts
 #if DEBUG
             var idCol = dgvAddContracts.Columns
                 .Cast<DataGridViewColumn>()
-                .FirstOrDefault(c => c.DataPropertyName.Equals("IdContract", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(c => c.DataPropertyName.Equals("idContract", StringComparison.OrdinalIgnoreCase));
             if (idCol != null)
             {
                 idCol.Visible = true;
@@ -658,6 +711,159 @@ namespace api_itm.UserControler.Contracts
             }
 #endif
 
+            
+            _rowsData = dgvAddContracts.DataSource;                    // List<anon>
+            _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null; // remember anon type
+
+            // // search
+
+            dgvAddContracts.DataSource = rows;
+
+            _allRowsData = rows;                               // full list for filtering
+            _rowsData = dgvAddContracts.DataSource;        // current (possibly filtered/sorted)
+            _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null;
+
+
+            UpdateCounts();
+            ApplyRowColorsByRegesId();
+        }
+
+        private void ApplySearchFilter()
+        {
+            if (_allRowsData == null || _rowItemType == null) return;
+
+            var q = _txtSearch.Text?.Trim();
+            IEnumerable<object> items = ((IEnumerable)_allRowsData).Cast<object>();
+
+            if (!string.IsNullOrEmpty(q))
+            {
+                var props = _rowItemType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+                items = items.Where(o =>
+                {
+                    foreach (var p in props)
+                    {
+                        var v = p.GetValue(o, null);
+                        if (v == null) continue;
+
+                        string s = v is DateTime dt ? dt.ToString("yyyy-MM-dd") : v.ToString();
+                        if (!string.IsNullOrEmpty(s) && s.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                            return true;
+                    }
+                    return false;
+                });
+            }
+
+            // keep current sort if any
+            if (!string.IsNullOrWhiteSpace(_lastSortProp))
+            {
+                var pi = _rowItemType.GetProperty(_lastSortProp, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (pi != null)
+                {
+                    items = _lastSortDir == ListSortDirection.Descending
+                        ? items.OrderByDescending(o => pi.GetValue(o, null), _nullsLast)
+                        : items.OrderBy(o => pi.GetValue(o, null), _nullsLast);
+                }
+            }
+
+            // Cast<T> + ToList<T> for anonymous type
+            var castM = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast))!.MakeGenericMethod(_rowItemType);
+            var toList = typeof(Enumerable).GetMethod(nameof(Enumerable.ToList))!.MakeGenericMethod(_rowItemType);
+            var casted = castM.Invoke(null, new object[] { items });
+            var list = toList.Invoke(null, new object[] { casted });
+
+            dgvAddContracts.DataSource = list;
+            _rowsData = list;
+
+            RenumberRows();
+            UpdateCounts();
+            ApplyRowColorsByRegesId();
+
+            foreach (DataGridViewColumn c in dgvAddContracts.Columns)
+                c.HeaderCell.SortGlyphDirection = SortOrder.None;
+
+            if (!string.IsNullOrWhiteSpace(_lastSortProp))
+            {
+                var sortedCol = dgvAddContracts.Columns
+                    .Cast<DataGridViewColumn>()
+                    .FirstOrDefault(c =>
+                        string.Equals(c.DataPropertyName, _lastSortProp, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(c.Name, _lastSortProp, StringComparison.OrdinalIgnoreCase));
+                if (sortedCol != null)
+                    sortedCol.HeaderCell.SortGlyphDirection =
+                        _lastSortDir == ListSortDirection.Descending ? SortOrder.Descending : SortOrder.Ascending;
+            }
+        }
+
+
+        private void EnableProgrammaticSortOnDataColumns()
+        {
+            foreach (DataGridViewColumn col in dgvAddContracts.Columns)
+            {
+                if (col == null) continue;
+                if (col.Name == SelectColName || col.Name == RowNoColName) continue;
+                col.SortMode = DataGridViewColumnSortMode.Programmatic;
+                col.HeaderCell.SortGlyphDirection = SortOrder.None;
+            }
+        }
+
+        private void OnHeaderClick(int colIndex)
+        {
+            if (colIndex < 0 || colIndex >= dgvAddContracts.Columns.Count) return;
+
+            var clickedCol = dgvAddContracts.Columns[colIndex];
+            if (clickedCol == null) return;
+            if (clickedCol.Name == SelectColName || clickedCol.Name == RowNoColName) return;
+
+            var prop = string.IsNullOrWhiteSpace(clickedCol.DataPropertyName) ? clickedCol.Name : clickedCol.DataPropertyName;
+            if (string.IsNullOrWhiteSpace(prop)) return;
+
+            var wantDesc = (_lastSortProp == prop) ? (_lastSortDir == ListSortDirection.Ascending) : true;
+
+            // rebind (this recreates columns)
+            ApplySort(prop, wantDesc);
+
+            // after rebinding, work with the NEW column instances
+            foreach (DataGridViewColumn c in dgvAddContracts.Columns)
+                c.HeaderCell.SortGlyphDirection = SortOrder.None;
+
+            var newCol = dgvAddContracts.Columns
+                .Cast<DataGridViewColumn>()
+                .FirstOrDefault(c =>
+                    string.Equals(c.DataPropertyName, prop, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.Name, prop, StringComparison.OrdinalIgnoreCase));
+
+            if (newCol != null)
+                newCol.HeaderCell.SortGlyphDirection = wantDesc ? SortOrder.Descending : SortOrder.Ascending;
+
+            _lastSortProp = prop;
+            _lastSortDir = wantDesc ? ListSortDirection.Descending : ListSortDirection.Ascending;
+        }
+
+        private void ApplySort(string propName, bool desc)
+        {
+            if (_rowsData == null || _rowItemType == null) return;
+
+            var pi = _rowItemType.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (pi == null) return;
+
+            // IEnumerable<object> peste lista curentă
+            var enumerable = ((IEnumerable)_rowsData).Cast<object>();
+
+            var sortedEnum = desc
+                ? enumerable.OrderByDescending(o => pi.GetValue(o, null), _nullsLast)
+                : enumerable.OrderBy(o => pi.GetValue(o, null), _nullsLast);
+
+            // Cast<T> + ToList<T> pentru tipul anonim
+            var castM = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast))!.MakeGenericMethod(_rowItemType);
+            var toListM = typeof(Enumerable).GetMethod(nameof(Enumerable.ToList))!.MakeGenericMethod(_rowItemType);
+            var casted = castM.Invoke(null, new object[] { sortedEnum });
+            var sortedListObj = toListM.Invoke(null, new object[] { casted });
+
+            dgvAddContracts.DataSource = sortedListObj;
+            _rowsData = sortedListObj; // noua ordine
+
+            // păstrăm UX-ul existent
+            RenumberRows();
             UpdateCounts();
             ApplyRowColorsByRegesId();
         }
@@ -807,9 +1013,21 @@ namespace api_itm.UserControler.Contracts
 
 
             var shiftTypeCode = await _db.ShiftType
-             .Where(shift => shift.ShiftTypeId == c.ids.ToString())
-             .Select(shift => shift.ContractTypeDurationCode)
+             .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
+             .Select(shift => shift.ShiftTypeCode)
              .FirstOrDefaultAsync(); //ShiftType
+
+
+            var workNormTypeCode = await _db.WorkNormType
+             .Where(shift => shift.WorkNormTypeId == c.NormId)
+             .Select(shift => shift.WorkNormTypeCode)
+             .FirstOrDefaultAsync(); //WorkNormType
+
+            //var countyCode = await _db.County
+            //.Where(cc => cc.CountyId == c.)
+            //.Select(cc => cc.WorkNormTypeCode)
+            //.FirstOrDefaultAsync(); //County
+
             Debug.WriteLine($"[DEBUG] Contract {c.IdContract} | FunctionStatId={c.FunctionStatId} => EducationLevelCode='{educationLevelCode}'");
 
             // 3b) SPORURI from contracte_sporuri x tipspor (by contract)
@@ -907,18 +1125,34 @@ namespace api_itm.UserControler.Contracts
                     InceputInterval = inceputInterval,
                     SfarsitInterval = sfarsitInterval,
                     //NotaRepartizareMunca = null,
-                    //TipTura = shiftTypeCode,
+                    TipTura = shiftTypeCode,
                     //ObservatiiTipTuraAlta = null
                 },
 
                 TipContract = typeContractRuCode,
                 TipDurata = typeContractDurationCode,
-                TipNorma = null,
+                TipNorma = workNormTypeCode,
                 TipLocMunca = c.Headquarters,
                 JudetLocMunca = null,
 
                 AplicaL153 = null,
-                DetaliiL153 = null
+
+                DetaliiL153 = new DetaliiL153 // in salarycontractru
+                { 
+                     //AnexaL153                   = c.L153AnnexCode,
+                     //CapitolL153                 = c.L153CapitolCode,
+                     //LiteraL153                  = c.L153LiteraCode,
+                     //ClasificareSuplimentaraL153 = c.L153ClasifCode,
+                     //FunctieL153                 = c.L153FunctieCode,
+                     //SpecialitateFunctieL153     = c.L153SpecFunctieCode,
+                     //StructuraAprobataL153       = c.L153StructuraCode,
+                     //SpecialitateStructuraAprobataL153 = c.L153SpecStructuraCode,
+                     //GradProfesionalL153         = c.L153GradProfCode,
+                     //GradatieL153                = c.L153GradatieCode,
+                     //DenumireAltaFunctieL153     = c.L153AltaFunctieName,
+                     //ExplicatieFunctieL153       = c.L153ExplicatieFunctie,
+                     //AltGradProfesionalL153      = c.L153AltGradProfText
+                }
             };
 
             var envelope = new ContractEnvelope
@@ -986,35 +1220,31 @@ namespace api_itm.UserControler.Contracts
         {
             if (dgvAddContracts?.Columns == null || dgvAddContracts.Rows.Count == 0) return;
 
-            // find the personId column
-            DataGridViewColumn pidCol = null;
-            foreach (DataGridViewColumn col in dgvAddContracts.Columns)
-            {
-                if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
-                {
-                    pidCol = col; break;
-                }
-            }
-            if (pidCol == null) return;
+            // find the idContract column
+            DataGridViewColumn idCol = dgvAddContracts.Columns
+                .Cast<DataGridViewColumn>()
+                .FirstOrDefault(c =>
+                    string.Equals(c.DataPropertyName, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.Name, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase));
 
-            // gentle green / red-ish
-            var green = System.Drawing.Color.FromArgb(230, 255, 230);
-            var greenSel = System.Drawing.Color.FromArgb(210, 240, 210);
-            var red = System.Drawing.Color.FromArgb(255, 235, 235);
-            var redSel = System.Drawing.Color.FromArgb(240, 210, 210);
+            if (idCol == null) return;
+
+            var green = Color.FromArgb(230, 255, 230);
+            var greenSel = Color.FromArgb(210, 240, 210);
+            var red = Color.FromArgb(255, 235, 235);
+            var redSel = Color.FromArgb(240, 210, 210);
 
             foreach (DataGridViewRow row in dgvAddContracts.Rows)
             {
                 if (row.IsNewRow) continue;
 
-                var raw = row.Cells[pidCol.Index].Value?.ToString();
-                if (int.TryParse(raw, out var pid))
+                var raw = row.Cells[idCol.Index].Value?.ToString();
+                if (int.TryParse(raw, out var contractId))
                 {
-                    bool hasId = _personsWithRegesId.Contains(pid);
-                    row.DefaultCellStyle.BackColor = hasId ? green : red;
-                    row.DefaultCellStyle.SelectionBackColor = hasId ? greenSel : redSel;
+                    bool hasReges = _contractsWithRegesId.Contains(contractId);
+                    row.DefaultCellStyle.BackColor = hasReges ? green : red;
+                    row.DefaultCellStyle.SelectionBackColor = hasReges ? greenSel : redSel;
                 }
-
             }
         }
 

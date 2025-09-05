@@ -1,11 +1,9 @@
 ﻿using api_itm.Data;
 using api_itm.Data.Entity;
 using api_itm.Data.Entity.Ru;   
+using api_itm.Infrastructure;
 using api_itm.Infrastructure.Mappers;
 using api_itm.Infrastructure.Sessions;
-using api_itm.Infrastructure;
-using System.Reflection;
-
 using api_itm.Models.Employee;
 using api_itm.Models.Reges;      
 using api_itm.Models.Reges;   // HeaderView
@@ -15,11 +13,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualBasic.ApplicationServices;
 using System;
+using System.Collections; // for IEnumerable
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -63,9 +64,32 @@ namespace api_itm.UserControler.Employee
 
         private HashSet<int> _personsWithRegesId = new HashSet<int>();
 
+        // // search 
+        // UI
+        private TextBox _txtSearch;
+        private Button _btnClearSearch;
+
+        // data cache
+        private object _allRowsData;    // original full List<anon>
+
 
         private const string ConsumerId = "winforms-dev-1"; // sau string.Empty pentru implicit
 
+        // sort state + cache for current rows (anonymous type)
+        private object _rowsData;                 // List<anon>
+        private Type _rowItemType;               // anon item type
+        private string _lastSortProp;            // last sorted property
+        private ListSortDirection _lastSortDir = ListSortDirection.Descending;
+
+        // nulls-last comparer for object keys
+        private static readonly IComparer<object> _nullsLast = Comparer<object>.Create((a, b) =>
+        {
+            if (a == null && b == null) return 0;
+            if (a == null) return 1;    // nulls last
+            if (b == null) return -1;
+            if (a.GetType() == b.GetType() && a is IComparable ca) return ca.CompareTo(b);
+            return string.Compare(a.ToString(), b.ToString(), StringComparison.CurrentCulture);
+        });
 
         private static string Trunc(string s, int max = 600)
     => string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
@@ -187,7 +211,35 @@ namespace api_itm.UserControler.Employee
             // ========= GRID =========
             if (dgvViewSalariati == null)
                 dgvViewSalariati = new DataGridView();
-             
+
+            ////search 
+
+            var lblSearch = new Label
+            {
+                Text = "Căutare:",
+                AutoSize = true,
+                Margin = new Padding(24, 3, 6, 0)
+            };
+            _txtSearch = new TextBox
+            {
+                Width = 220,
+                Margin = new Padding(0, 0, 6, 0)
+            };
+            _btnClearSearch = new Button
+            {
+                Text = "X",
+                AutoSize = true,
+                Margin = new Padding(0, 0, 0, 0)
+            };
+
+            topFlow.Controls.Add(lblSearch);
+            topFlow.Controls.Add(_txtSearch);
+            topFlow.Controls.Add(_btnClearSearch);
+
+            // events
+            _txtSearch.TextChanged += (_, __) => ApplySearchFilter();
+            _btnClearSearch.Click += (_, __) => { _txtSearch.Clear(); _txtSearch.Focus(); };
+
 
             // color after data binds
             ApplyRowColorsByRegesId();
@@ -254,6 +306,11 @@ namespace api_itm.UserControler.Employee
             dgvViewSalariati.RowsRemoved += (_, __) => { RenumberRows(); UpdateCounts(); };
 
             dgvViewSalariati.CellDoubleClick += async (_, __) => await PreviewSelectedRowJsonAsync();
+            dgvViewSalariati.ColumnHeaderMouseClick += (_, e) => OnHeaderClick(e.ColumnIndex);
+
+            dgvViewSalariati.KeyDown += (_, e) => { if (e.Control && e.KeyCode == Keys.F) { _txtSearch.Focus(); e.Handled = true; } };
+
+
         }
 
         private void ApplyRowColorsByRegesId()
@@ -292,127 +349,299 @@ namespace api_itm.UserControler.Employee
         }
 
         private async Task LoadEmployeesAsync()
-        {
-            // IMPORTANT: this uses the ENGLISH Person property names we standardized:
-            // PersonId, SirutaCode, Address, NationalId, LastName, FirstName, BirthDate,
-            // NationalityTypeId, DomicileCountryId, IdentityDocTypeId, IdTipApatrid,
-            // HandicapTypeId, DisabilityGradeId, HandicapCertificateDate, HandicapCertificateNumber, Notes, WorkPermitStartDate, WorkPermitEndDate
-            //var apatridTest = await _db.Countries.ToListAsync();
-            //foreach (var a in apatridTest)
-            //{
-            //    Debug.WriteLine($"ID: {a.IdTypePapartid}, Name: {a.PaPartidName}, Code: {a.CodPaPatrid}");
-            //}
+        {  
 
-            var countries = await _db.Countries.ToListAsync();
+            // 1) Raw read + lookups needed for payload-like values
+            var raw = await (
+                from p in _db.People
+                where p.Status == "A"
 
-            foreach (var country in countries)
+                from c in _db.Countries
+                     .Where(x => x.CountryId == p.DomicileCountryId)
+                     .DefaultIfEmpty()
+
+                from a in _db.IdentityDocumentTypes
+                     .Where(x => x.IdentityDocumentTypeId == p.IdentityDocTypeId)
+                     .DefaultIfEmpty()
+
+                from ap in _db.TypePapartide
+                     .Where(x => x.IdTypePapartid == p.IdTipApatrid)
+                     .DefaultIfEmpty()
+
+                from th in _db.DisabilityTypes
+                     .Where(x => x.DisabilityTypeId == p.HandicapTypeId)
+                     .DefaultIfEmpty()
+
+                from gh in _db.DisabilityGrades
+                     .Where(x => x.DisabilityGradeId == p.DisabilityGradeId)
+                     .DefaultIfEmpty()
+
+                from wpt in _db.WorkPermitTypes
+                     .Where(x => x.WorkPermitId == p.WorkPermitTypeId)
+                     .DefaultIfEmpty()
+
+                orderby p.PersonId
+                select new
+                {
+                    p.PersonId,
+                    p.SirutaCode,
+                    p.Address,
+                    p.NationalId,
+                    p.LastName,
+                    p.FirstName,
+                    p.BirthDate,
+
+                    // pentru fallback-uri (aceleași ca în payload)
+                    DomicileCountryRevisal = c.CountryNameRevisal,
+                    IdentityDocumentName = a.IdentityDocumentName,
+                    IdentityDocumentCode = a.IdentityDocumentCode,
+                    p.IdentityDocTypeId,
+
+                    ApatridName = ap.PaPartidName,
+
+                    HandicapTypeName = th.DisabilityTypeName,
+                    HandicapTypeId = p.HandicapTypeId,
+                    DisabilityGradeName = gh.DisabilityGradeName,
+                    DisabilityGradeId = p.DisabilityGradeId,
+
+                    p.HandicapCertificateDate,
+                    p.HandicapCertificateNumber,
+                    p.DisabilityReviewDate,
+
+                    p.WorkPermitStartDate,
+                    p.WorkPermitEndDate,
+                    WorkPermitTypeName = wpt.WorkPermitName,
+                    p.ApprovalNumber
+                }
+            )
+            .AsNoTracking()
+            .ToListAsync();
+
+            // 2) Proiecția finală pentru DGV (oglindă a câmpurilor din JSON, cu fallback-uri umplute)
+            var rows = raw.Select(r =>
             {
-                Debug.WriteLine($@" --- COUNTRY --- ID: {country.CountryId},Name: {country.CountryName},Type: {country.CountryType}  ,Revisal Name: {country.CountryNameRevisal}");
-            }
+                // același “isPassport” ca în payload
+                var isPassport = r.IdentityDocTypeId != 0 &&
+                                 r.IdentityDocTypeId != 1 &&
+                                 r.IdentityDocTypeId != 2 &&
+                                 r.IdentityDocTypeId != 7 &&
+                                 r.IdentityDocTypeId != 9;
 
+                var includeHandicap = r.HandicapTypeId >= 1 && r.HandicapTypeId <= 10;
 
-            //var testJoin = await (from p in _db.People
-            //                      join ap in _db.TypePapartide
-            //                          on p.IdTipApatrid equals ap.IdTypePapartid into apgrp
-            //                      from ap in apgrp.DefaultIfEmpty()
-            //                      select new
-            //                      {
-            //                          p.PersonId,
-            //                          IdTipApatrid_Person = p.IdTipApatrid,
-            //                          IdTipApatrid_Db = ap != null ? ap.IdTypePapartid : (int?)null,
-            //                          PaPartidName = ap != null ? ap.PaPartidName : "null"
-            //                      })
-            //         .ToListAsync();
-            //Debug.WriteLine("Test tippartit:" + testJoin);
+                // fallback-uri identice cu payload
+                var taraDomiciliu = RegesJson.FixText(r.DomicileCountryRevisal) ?? "";
+                var nationalitate = RegesJson.Norma(taraDomiciliu) ?? taraDomiciliu;
+                var tipAct = r.IdentityDocumentName ?? r.IdentityDocumentCode ?? "";
 
-            var rows =
-                await (from p in _db.People
-                       where p.Status == "A"
+                return new
+                {
+                    // coloane de bază
+                    personId = r.PersonId,
+                    codSiruta = r.SirutaCode,
+                    adresa = r.Address,
+                    cnp = r.NationalId,
+                    nume = r.LastName,
+                    prenume = r.FirstName,
+                    dataNastere = r.BirthDate,
 
-                       join c in _db.Countries
-                            on p.DomicileCountryId equals c.CountryId into cgrp
-                       from c in cgrp.DefaultIfEmpty()
+                    // aceleași nume ca în gridul tău anterior + payload
+                    Nationalitate = nationalitate,
+                    TaraDomiciliu = taraDomiciliu,
+                    tipActIdentitate = tipAct,
+                    apatrid = r.ApatridName,
 
-                       join n in _db.NationalityTypes
-                          on c.CountryId equals n.NationalityTypeId into ngrp
-                       from n in ngrp.DefaultIfEmpty()
+                    // handicap – numai dacă se încadrează
+                    tipHandicap = includeHandicap ? r.HandicapTypeName : null,
+                    gradHandicap = includeHandicap ? r.DisabilityGradeName : null,
+                    dataCertificatHandicap = includeHandicap ? r.HandicapCertificateDate : null,
+                    numarCertificatHandicap = includeHandicap ? r.HandicapCertificateNumber : null,
+                    dataValabilitateCertificatHandicap = includeHandicap ? r.DisabilityReviewDate : null,
 
-                       join a in _db.IdentityDocumentTypes
-                            on p.IdentityDocTypeId equals a.IdentityDocumentTypeId into agrp
-                       from a in agrp.DefaultIfEmpty()
+                    // detalii salariat străin – aceleași denumiri ca în proiecția ta veche
+                    dataInceputAutorizatie = isPassport ? r.WorkPermitStartDate : null,
+                    dataSfarsitAutorizatie = isPassport ? r.WorkPermitEndDate : null,
+                    tipAutorizatie = isPassport ? r.WorkPermitTypeName : null,
+                    tipAutorizatieExceptie = isPassport ? r.WorkPermitTypeName : null, // păstrează logica existentă
+                    numarAutorizatie = isPassport ? r.ApprovalNumber : null
+                };
+            })
+            .ToList();
 
-                       join ap in _db.TypePapartide
-                            on p.IdTipApatrid equals ap.IdTypePapartid into apgrp
-                       from ap in apgrp.DefaultIfEmpty()
-
-                       join th in _db.DisabilityTypes
-                            on p.HandicapTypeId equals th.DisabilityTypeId into thgrp
-                       from th in thgrp.DefaultIfEmpty()
-
-                       join gh in _db.DisabilityGrades
-                            on p.DisabilityGradeId equals gh.DisabilityGradeId into ghgrp
-                       from gh in ghgrp.DefaultIfEmpty()
-
-                         let isPassport = true
-                       orderby p.PersonId
-                       select new
-                       {
-                           personId = p.PersonId,
-                           codSiruta = p.SirutaCode,
-                           adresa = p.Address,
-                           cnp = p.NationalId,
-                           nume = p.LastName,
-                           prenume = p.FirstName,
-                           dataNastere = p.BirthDate,
-                           Nationalitate = RegesJson.FixText(c.CountryNameRevisal),
-                           TaraDomiciliu = RegesJson.FixText(c.CountryNameRevisal),
-                           tipActIdentitate = a != null ? a.IdentityDocumentName : null,
-                           apatrid = ap != null ? ap.PaPartidName : null,
-                           dataInceputAutorizatie = p.WorkPermitStartDate,
-                           dataSfarsitAutorizatie = p.WorkPermitEndDate,
-                           tipAutorizatie = (string?)null,
-                           tipAutorizatieExceptie = (string?)null,
-                           numarAutorizatie = (string?)null,
-                           tipHandicap = th != null ? th.DisabilityTypeName : null,
-                           gradHandicap = gh != null ? gh.DisabilityGradeName : null,
-                           dataCertificatHandicap = p.HandicapCertificateDate,
-                           numarCertificatHandicap = p.HandicapCertificateNumber,
-                           dataValabilitateCertificatHandicap = (DateTime?)null,
-                           mentiuni = p.Notes,
-                           motivRadiere = (string?)null,
-                           detaliiSalariatStrain =
-    (isPassport)
-        ? new api_itm.Models.Employee.DetaliiSalariatStrain
-        {
-            DataInceputAutorizatie = p.WorkPermitStartDate.Value ,
-            DataSfarsitAutorizatie = p.WorkPermitEndDate.Value,
-            TipAutorizatie = null,
-            TipAutorizatieExceptie = null,
-            NumarAutorizatie = null
-        }
-        : null
-                       })
-    .AsNoTracking()
-    .ToListAsync();
-
+            // 3) setul de persoane care au deja RegesEmployeeId (pentru colorare)
             var withRegesNullable = await _db.Set<RegesSync>()
-      .Where(r => r.RegesEmployeeId.HasValue)
-      .Select(r => r.PersonId)          // List<int?>
-      .Distinct()
-      .ToListAsync();
+                .Where(r => r.RegesEmployeeId.HasValue)
+                .Select(r => r.PersonId)
+                .Distinct()
+                .ToListAsync();
 
             _personsWithRegesId = new HashSet<int>(
-                withRegesNullable.Where(pid => pid.HasValue)
-                                 .Select(pid => pid.Value)
+                withRegesNullable.Where(pid => pid.HasValue).Select(pid => pid.Value)
             );
 
-
+            // 4) bind + color
             dgvViewSalariati.AutoGenerateColumns = true;
             dgvViewSalariati.DataSource = rows;
 
+            _rowsData = dgvViewSalariati.DataSource;                    // List<anon>
+            _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null; // remember anon type
+
+
+            // //search
+            dgvViewSalariati.DataSource = rows;
+
+            _allRowsData = rows;                               // full list for filtering
+            _rowsData = dgvViewSalariati.DataSource;        // current (possibly filtered/sorted)
+            _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null;
+
+
+
             //  after DataSource
             ApplyRowColorsByRegesId();
+
+
         }
+
+        private void ApplySearchFilter()
+        {
+            if (_allRowsData == null || _rowItemType == null) return;
+
+            var q = _txtSearch.Text?.Trim();
+            IEnumerable<object> items = ((IEnumerable)_allRowsData).Cast<object>();
+
+            if (!string.IsNullOrEmpty(q))
+            {
+                var props = _rowItemType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+                items = items.Where(o =>
+                {
+                    foreach (var p in props)
+                    {
+                        var v = p.GetValue(o, null);
+                        if (v == null) continue;
+
+                        string s = v is DateTime dt ? dt.ToString("yyyy-MM-dd") : v.ToString();
+                        if (!string.IsNullOrEmpty(s) && s.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                            return true;
+                    }
+                    return false;
+                });
+            }
+
+            // keep current sort if any
+            if (!string.IsNullOrWhiteSpace(_lastSortProp))
+            {
+                var pi = _rowItemType.GetProperty(_lastSortProp, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (pi != null)
+                {
+                    items = _lastSortDir == ListSortDirection.Descending
+                        ? items.OrderByDescending(o => pi.GetValue(o, null), _nullsLast)
+                        : items.OrderBy(o => pi.GetValue(o, null), _nullsLast);
+                }
+            }
+
+            // Cast<T> + ToList<T> for anonymous type
+            var castM = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast))!.MakeGenericMethod(_rowItemType);
+            var toList = typeof(Enumerable).GetMethod(nameof(Enumerable.ToList))!.MakeGenericMethod(_rowItemType);
+            var casted = castM.Invoke(null, new object[] { items });
+            var list = toList.Invoke(null, new object[] { casted });
+
+            dgvViewSalariati.DataSource = list;
+            _rowsData = list;
+
+            RenumberRows();
+            UpdateCounts();
+            ApplyRowColorsByRegesId();
+
+            foreach (DataGridViewColumn c in dgvViewSalariati.Columns)
+                c.HeaderCell.SortGlyphDirection = SortOrder.None;
+
+            if (!string.IsNullOrWhiteSpace(_lastSortProp))
+            {
+                var sortedCol = dgvViewSalariati.Columns
+                    .Cast<DataGridViewColumn>()
+                    .FirstOrDefault(c =>
+                        string.Equals(c.DataPropertyName, _lastSortProp, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(c.Name, _lastSortProp, StringComparison.OrdinalIgnoreCase));
+                if (sortedCol != null)
+                    sortedCol.HeaderCell.SortGlyphDirection =
+                        _lastSortDir == ListSortDirection.Descending ? SortOrder.Descending : SortOrder.Ascending;
+            }
+        }
+
+
+        private void EnableProgrammaticSortOnDataColumns()
+        {
+            foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
+            {
+                if (col == null) continue;
+                if (col.Name == SelectColName || col.Name == RowNoColName) continue;
+                col.SortMode = DataGridViewColumnSortMode.Programmatic;
+                col.HeaderCell.SortGlyphDirection = SortOrder.None;
+            }
+        }
+
+        private void OnHeaderClick(int colIndex)
+        {
+            if (colIndex < 0 || colIndex >= dgvViewSalariati.Columns.Count) return;
+
+            var clickedCol = dgvViewSalariati.Columns[colIndex];
+            if (clickedCol == null) return;
+            if (clickedCol.Name == SelectColName || clickedCol.Name == RowNoColName) return;
+
+            var prop = string.IsNullOrWhiteSpace(clickedCol.DataPropertyName) ? clickedCol.Name : clickedCol.DataPropertyName;
+            if (string.IsNullOrWhiteSpace(prop)) return;
+
+            var wantDesc = (_lastSortProp == prop) ? (_lastSortDir == ListSortDirection.Ascending) : true;
+
+            // rebind (this recreates columns)
+            ApplySort(prop, wantDesc);
+
+            // after rebinding, work with the NEW column instances
+            foreach (DataGridViewColumn c in dgvViewSalariati.Columns)
+                c.HeaderCell.SortGlyphDirection = SortOrder.None;
+
+            var newCol = dgvViewSalariati.Columns
+                .Cast<DataGridViewColumn>()
+                .FirstOrDefault(c =>
+                    string.Equals(c.DataPropertyName, prop, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.Name, prop, StringComparison.OrdinalIgnoreCase));
+
+            if (newCol != null)
+                newCol.HeaderCell.SortGlyphDirection = wantDesc ? SortOrder.Descending : SortOrder.Ascending;
+
+            _lastSortProp = prop;
+            _lastSortDir = wantDesc ? ListSortDirection.Descending : ListSortDirection.Ascending;
+        }
+
+        private void ApplySort(string propName, bool desc)
+        {
+            if (_rowsData == null || _rowItemType == null) return;
+
+            var pi = _rowItemType.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+            if (pi == null) return;
+
+            // IEnumerable<object> peste lista curentă
+            var enumerable = ((IEnumerable)_rowsData).Cast<object>();
+
+            var sortedEnum = desc
+                ? enumerable.OrderByDescending(o => pi.GetValue(o, null), _nullsLast)
+                : enumerable.OrderBy(o => pi.GetValue(o, null), _nullsLast);
+
+            // Cast<T> + ToList<T> pentru tipul anonim
+            var castM = typeof(Enumerable).GetMethod(nameof(Enumerable.Cast))!.MakeGenericMethod(_rowItemType);
+            var toListM = typeof(Enumerable).GetMethod(nameof(Enumerable.ToList))!.MakeGenericMethod(_rowItemType);
+            var casted = castM.Invoke(null, new object[] { sortedEnum });
+            var sortedListObj = toListM.Invoke(null, new object[] { casted });
+
+            dgvViewSalariati.DataSource = sortedListObj;
+            _rowsData = sortedListObj; // noua ordine
+
+            // păstrăm UX-ul existent
+            RenumberRows();
+            UpdateCounts();
+            ApplyRowColorsByRegesId();
+        }
+
 
         private void EnsureSpecialColumns()
         {
@@ -485,6 +714,9 @@ namespace api_itm.UserControler.Employee
             // keep special columns in front
             dgvViewSalariati.Columns[SelectColName].DisplayIndex = 0;
             dgvViewSalariati.Columns[RowNoColName].DisplayIndex = 1;
+
+            EnableProgrammaticSortOnDataColumns();   // arrows in header we control
+
         }
 
         private void RenumberRows()
@@ -836,41 +1068,57 @@ namespace api_itm.UserControler.Employee
                     .FirstOrDefaultAsync());
 
             var typeWorkPermit = await SafeLookup(() =>
-     _db.WorkPermitTypes
-         .Where(w => w.WorkPermitId == p.WorkPermitTypeId)
-         .Select(w => w.WorkPermitName)
-         .FirstOrDefaultAsync());
+                _db.WorkPermitTypes
+                    .Where(w => w.WorkPermitId == p.WorkPermitTypeId)
+                    .Select(w => w.WorkPermitName)
+                    .FirstOrDefaultAsync());
 
             Debug.WriteLine($"Work permit name: {typeWorkPermit ?? "(null)"}");
-
 
             if (p.InvalidityGradeId.HasValue)
                 gradInvaliditateCodeRaw = $"Grad{p.InvalidityGradeId.Value}";
 
-            // Map core data
-            var info = EmployeeMapper.FromPerson(
-                p,
-                nationalitateName,
-                taraDomiciliuName,
-                tipActCodeRaw,
-                tipHandicapCodeRaw,
-                gradHandicapCodeRaw,
-                gradInvaliditateCodeRaw
-            );
+            var includeHandicap = p.HandicapTypeId >= 1 && p.HandicapTypeId <= 10;
+
+            var info = new EmployeeInformation
+            {
+                Localitate = new Localitate { CodSiruta = p.SirutaCode ?? 0 },
+                Adresa = p.Address ?? "",
+                Cnp = p.NationalId ?? "",
+                Nume = p.LastName ?? "",
+                Prenume = p.FirstName ?? "",
+                DataNastere = p.BirthDate ?? DateTime.MinValue,
+
+                Nationalitate = new NamedEntity { Nume = nationalitateName ?? "" },
+                TaraDomiciliu = new NamedEntity { Nume = taraDomiciliuName ?? "" },
+                TipActIdentitate = tipActCodeRaw ?? "",
+
+                //apatrid - nu se adauga 
+
+                TipHandicap = includeHandicap ? (tipHandicapCodeRaw ?? "") : null,
+                GradHandicap = includeHandicap ? (gradHandicapCodeRaw ?? "") : null,
+                DataCertificatHandicap = includeHandicap ? p.HandicapCertificateDate : null,
+                NumarCertificatHandicap = includeHandicap ? (p.HandicapCertificateNumber ?? "") : null,
+                DataValabilitateCertificatHandicap = includeHandicap ? p.DisabilityReviewDate : null,
+                GradInvaliditate = includeHandicap ? (gradInvaliditateCodeRaw ?? "") : null,
+
+                Mentiuni = "",
+                MotivRadiere = ""
+            };
 
             Debug.WriteLine("p.IdentityDocTypeId:" + p.IdentityDocTypeId);
             // Add DetaliiSalariatStrain if using passport
             if (p.IdentityDocTypeId != 0 &&
-     p.IdentityDocTypeId != 1 &&
-     p.IdentityDocTypeId != 2 &&
-     p.IdentityDocTypeId != 7 &&
-     p.IdentityDocTypeId != 9)
+                p.IdentityDocTypeId != 1 &&
+                p.IdentityDocTypeId != 2 &&
+                p.IdentityDocTypeId != 7 &&
+                p.IdentityDocTypeId != 9)
             {
                 var tipAutorizatieRaw = await SafeLookup(() =>
-         _db.WorkPermitTypes
-             .Where(w => w.WorkPermitId == p.WorkPermitTypeId)
-             .Select(w => w.WorkPermitName)
-             .FirstOrDefaultAsync());
+                    _db.WorkPermitTypes
+                        .Where(w => w.WorkPermitId == p.WorkPermitTypeId)
+                        .Select(w => w.WorkPermitName)
+                        .FirstOrDefaultAsync());
 
                 TipAutorizatie? tipAutorizatie = null;
 
@@ -882,7 +1130,7 @@ namespace api_itm.UserControler.Employee
 
                 Debug.WriteLine("tipAutorizatieRaw:" + tipAutorizatieRaw);
 
-                var numarAutorizatieRaw = p.ApprovalNumber ?? ""; // or p.WorkPermitNumber
+                var numarAutorizatieRaw = p.ApprovalNumber ?? "";
 
                 info.DetaliiSalariatStrain = new DetaliiSalariatStrain
                 {
@@ -917,7 +1165,6 @@ namespace api_itm.UserControler.Employee
             ApplyRowColorsByRegesId();
             return payload;
         }
-
 
         // Step 1: Send one payload -> get synchronous MessageResponse (recipisa)
         private async Task<SyncResponse> SendOneAsync(int personId)

@@ -292,18 +292,6 @@ namespace api_itm.Infrastructure
                     ["romanian"] = "România",
                     ["romania"] = "România",
 
-                    // Cazuri frecvente respinse de API
-                    ["republica moldova"] = "Moldova (Republica)",
-                    ["moldova"] = "Moldova (Republica)",
-                    ["uk"] = "Marea Britanie",
-                    ["regatul unit"] = "Marea Britanie",
-                    ["cote d'ivoire"] = "Coasta de Fildeş",
-                    ["côte d'ivoire"] = "Coasta de Fildeş",
-                    ["costa de fildes"] = "Coasta de Fildeş",
-                    ["statele unite"] = "Statele Unite ale Americii",
-                    ["sua"] = "Statele Unite ale Americii",
-                    ["coreea de sud"] = "Coreea de Sud",
-                    ["coreea de nord"] = "Coreea de Nord",
                 };
 
                 var key = RemoveDiacritics(v).ToLowerInvariant();

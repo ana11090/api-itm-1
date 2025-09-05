@@ -9,7 +9,7 @@ namespace api_itm.Data.Configurations.Ru
         // api_itm.Data.Configurations.Ru.RegesSyncConfiguration
         public void Configure(EntityTypeBuilder<RegesSync> b)
         {
-            b.ToTable("idsreges");
+            b.ToTable("idsreges_salariat");
             b.HasKey(e => e.Id);
 
             b.Property(e => e.Id).HasColumnName("id").IsRequired();
