@@ -1,12 +1,17 @@
 ﻿using api_itm.Data;
 using api_itm.Infrastructure;
+using api_itm.Infrastructure.Db;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Models;
 using api_itm.UserControler.Contracts;
+using api_itm.UserControler.Contracts.Cessation___Reactivation;
+using api_itm.UserControler.Contracts.Operations;
+using api_itm.UserControler.Contracts.Suspended;
 using api_itm.UserControler.Employee;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Npgsql; // <-- ADDED
 using System;
 using System.Diagnostics;
 using System.Windows.Forms;
@@ -24,52 +29,92 @@ namespace api_itm
 
             var builder = Host.CreateApplicationBuilder();
 
-            // Configure EF Core with PostgreSQL
-            builder.Services.AddDbContext<AppDbContext>(options =>
-                options.UseNpgsql("Host=193.231.20.42;Port=5432;Database=direc_restore;Username=usrru;Password=R3sur$e")
-                       .LogTo(Console.WriteLine)
-                       .EnableSensitiveDataLogging()
-                       .EnableDetailedErrors()
-            );
+            // Single canonical connection string. Force schema so unqualified names hit public.*
+            // var conn = "Host=193.231.20.42;Port=5432;Database=direc;Username=usrru;Password=R3sur$e;Search Path=ru"; //REAL
+            var conn = "Host=193.231.20.42;Port=5432;Database=direc_restore;Username=usrru;Password=R3sur$e;Search Path=ru"; // TEST
 
-            // ADD (keeps your existing AddDbContext)
-            builder.Services.AddDbContextFactory<AppDbContext>(options =>
-                options.UseNpgsql("Host=193.231.20.42;Port=5432;Database=direc_restore;Username=usrru;Password=R3sur$e")
-                       .LogTo(Console.WriteLine)
-                       .EnableSensitiveDataLogging()
-                       .EnableDetailedErrors()
-            );
+            // === DI registrations moved to Infrastructure/ServiceRegistration (your "interface" folder)
+            // Keep logging on while developing; flip to false for quieter logs.
+            builder.Services.AddApiItmServices(conn, devLogging: true);
 
-            // DI registrations
-            builder.Services.AddSingleton<ISessionContext, SessionContext>();
-            builder.Services.AddScoped<LoginForm>();
-            builder.Services.AddScoped<MainForm>();
-            builder.Services.AddScoped<ControlerEmployeeView>();
-            builder.Services.AddScoped<ControlerAddContractsView>();
-
-            // Build the host AFTER all services are registered
             App = builder.Build();
 
-            // Create a scope to resolve scoped services
-            using (var serviceScope = App.Services.CreateScope())
+            using (var scope = App.Services.CreateScope())
             {
-                var services = serviceScope.ServiceProvider;
+                var sp = scope.ServiceProvider;
 
-                // 1) Ensure DB objects exist (no migrations)
-                var db = services.GetRequiredService<AppDbContext>();
+                // === Resolve DbContext
+                var db = sp.GetRequiredService<AppDbContext>();
+
+                // === CALL THE FUNCTION HERE: connectivity probe (sync, no await)
+                ProbeDb(db);
+
+                // === Ensure tables BEFORE anything queries them (still sync)
                 DbIdRagesEmployeesSetup.EnsureAsync(db).GetAwaiter().GetResult();
                 DbIdRagesContractsSetup.EnsureAsync(db).GetAwaiter().GetResult();
+                DbIdRagesEmployeesModificariSetup.EnsureAsync(db).GetAwaiter().GetResult();
 
-                // 2) Resolve session + login form
-                var session = services.GetRequiredService<ISessionContext>();
-                var loginForm = services.GetRequiredService<LoginForm>();
+                // Quick visibility check (sync, no await)
+                var cx = db.Database.GetDbConnection();
+                cx.Open();
+                using (var cmd = cx.CreateCommand())
+                {
+                    cmd.CommandText = "select current_setting('search_path'), current_schema(), to_regclass('public.idsreges_salariat')::text;";
+                    using var r = cmd.ExecuteReader();
+                    if (r.Read())
+                    {
+                        Debug.WriteLine($"[DB] search_path={r.GetString(0)} | current_schema={r.GetString(1)} | public.idsreges_salariat={(r.IsDBNull(2) ? "NULL" : r.GetString(2))}");
+                    }
+                }
+                cx.Close();
+
+                var session = sp.GetRequiredService<ISessionContext>();
+                var loginForm = sp.GetRequiredService<LoginForm>();
                 loginForm.Init(session);
 
-                Debug.WriteLine("=== Session just created ===");
-                Debug.WriteLine($"SessionId: {session.SessionId}");
-
-                // 3) Start WinForms app
                 Application.Run(loginForm);
+            }
+        }
+
+        // === Minimal, self-contained DB check (shows a message and exits if it fails)
+        private static void ProbeDb(AppDbContext db)
+        {
+            try
+            {
+                var cx = db.Database.GetDbConnection();
+                cx.Open();
+                using (var cmd = cx.CreateCommand())
+                {
+                    cmd.CommandText = @"
+                        select version(),
+                               current_database(),
+                               current_user,
+                               current_setting('search_path'),
+                               inet_server_addr()::text,
+                               inet_server_port();";
+                    using var r = cmd.ExecuteReader();
+                    if (r.Read())
+                    {
+                        Debug.WriteLine($"[DB:OK] {r.GetString(0)}");
+                        Debug.WriteLine($"[DB:CTX] db={r.GetString(1)} | user={r.GetString(2)} | sp={r.GetString(3)} | addr={r.GetString(4)}:{r.GetInt32(5)}");
+                    }
+                }
+                cx.Close();
+            }
+            catch (PostgresException ex)
+            {
+                MessageBox.Show($"Database connection failed.\nSQLSTATE: {ex.SqlState}\n{ex.MessageText}", "Database Error");
+                Environment.Exit(1);
+            }
+            catch (NpgsqlException ex)
+            {
+                MessageBox.Show($"Database connection failed.\n{ex.Message}", "Database Error");
+                Environment.Exit(1);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "Database Error");
+                Environment.Exit(1);
             }
         }
 

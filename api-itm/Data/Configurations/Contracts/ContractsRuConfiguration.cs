@@ -147,6 +147,7 @@ namespace api_itm.Data.Configurations
             builder.Property(c => c.WorkDistributionId).HasColumnName("idrepartizaremunca");
             builder.Property(c => c.ShiftTypeId).HasColumnName("idtiptura");
 
+            builder.Property(c => c.WorkTypeID).HasColumnName("idtiplocmunca"); //WorkTypeID
         }
     }
 }

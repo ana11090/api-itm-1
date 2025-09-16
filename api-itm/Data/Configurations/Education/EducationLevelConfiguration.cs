@@ -24,7 +24,10 @@ namespace api_itm.Data.Configurations.Education
                    .HasColumnName("denumirenivelstudii");
 
             builder.Property(x => x.EducationLevelCode)
-                   .HasColumnName("codnivelstudii");
+                  .HasColumnName("codnivelstudii");
+
+            builder.Property(x => x.EducationLevelCodeReges)
+                   .HasColumnName("codnivelstudiireges");
         }
     }
 }

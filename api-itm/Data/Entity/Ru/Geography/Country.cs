@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace api_itm.Data.Entity.Ru
+namespace api_itm.Data.Entity.Ru.Geography
 {
     [Table("tari")]
     public class Country

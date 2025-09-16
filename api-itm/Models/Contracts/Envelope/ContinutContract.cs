@@ -23,6 +23,8 @@ namespace api_itm.Models.Contracts.Envelope
 
         [JsonPropertyName("dataInceputContract")] public DateTime? DataInceputContract { get; set; }
 
+        [JsonPropertyName("dataSfarsitContract")] public DateTime? DataSfarsitContract { get; set; }
+
         // Kept as string (e.g., "Art83LitH") to avoid enum mismatch
         [JsonPropertyName("exceptieDataSfarsit")] public string? ExceptieDataSfarsit { get; set; }
 
@@ -30,7 +32,7 @@ namespace api_itm.Models.Contracts.Envelope
 
         [JsonPropertyName("radiat")] public bool? Radiat { get; set; }
 
-        [JsonPropertyName("salariu")] public decimal? Salariu { get; set; }
+        [JsonPropertyName("salariu")] public int? Salariu { get; set; }
 
         //[JsonPropertyName("salariuValuta")] public string? SalariuValuta { get; set; }  // nu sunt sigura daca avem nevoie de asta
 

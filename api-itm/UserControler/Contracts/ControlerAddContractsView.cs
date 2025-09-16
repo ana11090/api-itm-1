@@ -29,6 +29,8 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using static api_itm.Program;
 using System.Collections; // for IEnumerable
+using System.Net.Http;       // HttpClient
+using System.Threading;      // CancellationToken
 
 namespace api_itm.UserControler.Contracts
 {
@@ -58,6 +60,16 @@ namespace api_itm.UserControler.Contracts
         private const string ContractIdPropertyName = "idContract";
         private HashSet<int> _contractsWithRegesId = new HashSet<int>();
 
+#if DEBUG
+        private CheckBox _chkDebugValidate;
+        private bool _debugValidate = true; // default ON in Debug
+#endif
+
+        
+
+        private string WithConsumer(string path)
+            => string.IsNullOrWhiteSpace(ConsumerId) ? path : $"{path}?consumerId={Uri.EscapeDataString(ConsumerId)}";
+
         // // search
         // UI
         private TextBox _txtSearch;
@@ -68,6 +80,8 @@ namespace api_itm.UserControler.Contracts
 
         private const string ConsumerId = "winforms-dev-1"; // sau string.Empty pentru implicit
 
+        private const string PollMessageUrl = "api/Status/PollMessage";
+         
         // sort state + cache for current rows (anonymous type)
         private object _rowsData;                 // List<anon>
         private Type _rowItemType;               // anon item type
@@ -107,6 +121,12 @@ namespace api_itm.UserControler.Contracts
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
             WriteIndented = true
         };
+        static ControlerAddContractsView()
+        {
+            _jsonOpts.Converters.Add(new DateTimeMsConverter());
+            _jsonOpts.Converters.Add(new NullableDateTimeMsConverter());
+        }
+
 
         private void ControlerAddContractsView_Load(object sender, EventArgs e)
         {
@@ -215,6 +235,18 @@ namespace api_itm.UserControler.Contracts
                 Margin = new Padding(0, 3, 0, 0)
             };
 
+#if DEBUG
+            _chkDebugValidate = new CheckBox
+            {
+                Text = "Validate before send (DEBUG)",
+                Checked = true,
+                AutoSize = true,
+                Margin = new Padding(16, 0, 0, 0)
+            };
+            _chkDebugValidate.CheckedChanged += (_, __) => _debugValidate = _chkDebugValidate.Checked;
+            topFlow.Controls.Add(_chkDebugValidate);
+#endif
+
             topFlow.Controls.Add(_chkSelectAll);
             topFlow.Controls.Add(_lblCount);
             _topBar.Controls.Add(topFlow);
@@ -317,7 +349,7 @@ namespace api_itm.UserControler.Contracts
 
             // ========= EVENTS =========
             _chkSelectAll.CheckedChanged += (_, __) => ToggleSelectAll(_chkSelectAll.Checked);
-            //_btnSendSelected.Click += async (_, __) => await SendSelectedAsync();
+            _btnSendSelected.Click += async (_, __) => await SendSelectedAsync();
 
             dgvAddContracts.CellDoubleClick += async (s, e) =>
             {
@@ -327,6 +359,418 @@ namespace api_itm.UserControler.Contracts
             dgvAddContracts.CurrentCellChanged += (_, __) => UpdateCounts();
             ResumeLayout();
         }
+
+        private List<int> GetSelectedContractIds()
+        {
+            DataGridViewColumn? pidCol = null;
+            foreach (DataGridViewColumn col in dgvAddContracts.Columns)
+            {
+                if (string.Equals(col.DataPropertyName, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    pidCol = col; break;
+                }
+            }
+            if (pidCol == null) return new List<int>();
+
+            var ids = new List<int>();
+            foreach (DataGridViewRow row in dgvAddContracts.Rows)
+            {
+                if (row.IsNewRow) continue;
+                bool isSel = Convert.ToBoolean(row.Cells[SelectColName].Value ?? false);
+                if (!isSel) continue;
+
+                var val = row.Cells[pidCol.Index].Value;
+                if (val == null || val == DBNull.Value) continue;
+                if (int.TryParse(val.ToString(), out var id))
+                    ids.Add(id);
+            }
+            return ids;
+        }
+        private async Task SaveSyncReceiptAsync(int idContract, SyncResponse sync)
+        {
+            Debug.WriteLine($"[DB] Save sync receipt for idContract={idContract}, messageId={sync?.header?.messageId}, responseId={sync?.responseId}");
+
+            var rec = new RegesContractSync
+            {
+                IdContract = idContract,
+                IdUtilizator = int.TryParse(_session.UserId, out var uid) ? uid : (int?)null,
+                Id_Raspuns_Mesaj = CoerceGuid(sync?.header?.messageId),
+                Id_Rezultat_Mesaj = CoerceGuid(sync?.responseId),
+                Status = "Pending",
+                Created_At = DateTime.UtcNow,
+                Updated_At = DateTime.UtcNow
+            };
+
+            await _dbFactory.WithDb(async db =>
+            {
+                db.Add(rec);
+                await db.SaveChangesAsync();
+            });
+        }
+
+
+        private async Task SendSelectedAsync()
+        {
+            var ids = GetSelectedContractIds();
+            if (ids.Count == 0)
+            {
+                MessageBox.Show("Select at least one row.");
+                return;
+            }
+
+            var lines = new List<SendLine>(ids.Count);
+            int ok = 0, fail = 0;
+
+            foreach (var idContract in ids)
+            {
+                try
+                {
+                    // 1) Send
+                    var sync = await SendOneAsync(idContract);
+
+                    // 2) Save receipt
+                    await SaveSyncReceiptAsync(idContract, sync);
+
+                    // 3) Poll + update DB row
+                    var expectedRid = CoerceGuid(sync?.responseId)?.ToString("D");
+                    if (string.IsNullOrWhiteSpace(expectedRid))
+                    {
+                        fail++;
+                        var msg = $"Invalid responseId '{sync?.responseId}'";
+                        Debug.WriteLine($"[REGES FAIL] idContract={idContract} | error={msg}");
+                        lines.Add(new SendLine { IdContract = idContract, Success = false, Message = msg });
+                        continue;
+                    }
+
+                    await PollForResultAndUpdateAsync(expectedRid, CancellationToken.None);
+
+                    // 4) Read back this response and build result line
+                    var ridGuid = CoerceGuid(sync?.responseId);
+                    if (ridGuid.HasValue)
+                    {
+                        await using var db = await _dbFactory.CreateDbContextAsync();
+                        var rec = await db.Set<RegesContractSync>()
+                            .AsNoTracking()
+                            .FirstOrDefaultAsync(x => x.Id_Rezultat_Mesaj.HasValue && x.Id_Rezultat_Mesaj.Value == ridGuid.Value);
+
+                        if (rec != null &&
+                            string.Equals(rec.Status, "Success", StringComparison.OrdinalIgnoreCase) &&
+                            rec.RegesContractId.HasValue)
+                        {
+                            ok++;
+                            lines.Add(new SendLine
+                            {
+                                IdContract = idContract,
+                                Success = true,
+                                Message = "OK",
+                                RegesContractId = rec.RegesContractId
+                            });
+                            Debug.WriteLine($"[REGES OK] idContract={idContract} | regesContractId={rec.RegesContractId}");
+                        }
+                        else
+                        {
+                            fail++;
+                            var errMsg = rec?.Error_Message ?? "Unknown error";
+                            lines.Add(new SendLine { IdContract = idContract, Success = false, Message = errMsg });
+                            Debug.WriteLine($"[REGES FAIL] idContract={idContract} | error={errMsg}");
+                        }
+                    }
+                    else
+                    {
+                        fail++;
+                        var msg = $"Invalid responseId '{sync?.responseId}'";
+                        lines.Add(new SendLine { IdContract = idContract, Success = false, Message = msg });
+                        Debug.WriteLine($"[REGES FAIL] idContract={idContract} | error={msg}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    fail++;
+                    lines.Add(new SendLine { IdContract = idContract, Success = false, Message = ex.Message });
+                    Debug.WriteLine($"[REGES EXCEPTION] idContract={idContract} | ex={ex.Message}");
+                }
+            }
+
+            Debug.WriteLine($"[REGES SUMMARY] total={ids.Count} ok={ok} fail={fail}");
+
+            //   Show the same reasons the console had, to the user:
+            ShowSendSummary(lines, ids.Count);
+            //   Reload the contracts grid  
+            await LoadContractsAsync();
+            RenumberRows();
+            UpdateCounts(); 
+            ApplyRowColorsByRegesId();
+
+        }
+
+        // Collect per-contract results for the final popup
+        private sealed class SendLine
+        {
+            public int IdContract { get; init; }
+            public bool Success { get; init; }
+            public string Message { get; init; } = "";
+            public Guid? RegesContractId { get; init; }
+        }
+
+        // Build and show a detailed summary. Falls back to a scrollable dialog if long.
+        private void ShowSendSummary(IReadOnlyList<SendLine> lines, int total)
+        {
+            var ok = lines.Count(l => l.Success);
+            var fail = lines.Count - ok;
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"[REGES SUMMARY] total={total} ok={ok} fail={fail}");
+
+            if (fail > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Erori:");
+                foreach (var l in lines.Where(x => !x.Success))
+                    sb.AppendLine($" • Contract {l.IdContract}: {l.Message}");
+            }
+
+            if (ok > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Succes:");
+                foreach (var l in lines.Where(x => x.Success))
+                {
+                    var idText = l.RegesContractId.HasValue ? l.RegesContractId.Value.ToString("D") : "-";
+                    sb.AppendLine($" • Contract {l.IdContract}: {idText}");
+                }
+            }
+
+            var text = sb.ToString();
+
+            // MessageBox is fine for shorter text, otherwise open a scrollable window
+            if (text.Length < 6000)
+            {
+                MessageBox.Show(text, "Rezultat trimitere contracte",
+                    MessageBoxButtons.OK,
+                    fail > 0 ? MessageBoxIcon.Error : MessageBoxIcon.Information);
+            }
+            else
+            {
+                using var dlg = new Form
+                {
+                    Text = "Rezultat trimitere contracte",
+                    StartPosition = FormStartPosition.CenterParent,
+                    Width = 900,
+                    Height = 700
+                };
+                var txt = new TextBox
+                {
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Both,
+                    Dock = DockStyle.Fill,
+                    Font = new Font("Consolas", 10f),
+                    Text = text
+                };
+                var copy = new Button { Text = "Copiază", Dock = DockStyle.Bottom, Height = 36 };
+                copy.Click += (_, __) => Clipboard.SetText(text);
+
+                dlg.Controls.Add(txt);
+                dlg.Controls.Add(copy);
+                dlg.ShowDialog(this);
+            }
+        }
+
+        // Add this inside ControlerAddContractsView (or a shared utils class)
+        private static Guid? CoerceGuid(object? value)
+        {
+            if (value is null) return null;
+            if (value is Guid g) return g;
+            if (value is string s && Guid.TryParse(s, out var gs)) return gs;
+
+            var text = value.ToString();
+            return Guid.TryParse(text, out var g2) ? g2 : (Guid?)null;
+        }
+
+
+        private async Task PollForResultAndUpdateAsync(string expectedResponseId, CancellationToken ct)
+        {
+            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            var url = WithConsumer(PollMessageUrl);
+            Debug.WriteLine($"[POLL] Using {http.BaseAddress}{url}");
+            Debug.WriteLine($"[POLL] Expecting responseId={expectedResponseId}");
+
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var resp = await http.PostAsync(url, content: null, ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Debug.WriteLine($"[POLL] Status={(int)resp.StatusCode} Body={(string.IsNullOrWhiteSpace(body) ? "<empty>" : body)}");
+
+                if (resp.StatusCode == System.Net.HttpStatusCode.NoContent || string.IsNullOrWhiteSpace(body))
+                {
+                    await Task.Delay(1000, ct);
+                    continue; // queue empty
+                }
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Poll HTTP {(int)resp.StatusCode}: {body}");
+
+                string responseId = null;
+                string codeType = null, code = null, description = null, operation = null, authorIdStr = null;
+                string regesContractId = null;
+
+                try
+                {
+                    using var doc = JsonDocument.Parse(body);
+                    var root = doc.RootElement;
+
+                    // responseId must match our receipt
+                    if (root.TryGetProperty("responseId", out var ridEl) && ridEl.ValueKind == JsonValueKind.String)
+                        responseId = ridEl.GetString();
+
+                    if (!string.Equals(responseId, expectedResponseId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.WriteLine("[POLL] Different responseId; continue polling...");
+                        await Task.Delay(600, ct);
+                        continue;
+                    }
+
+                    // result
+                    if (root.TryGetProperty("result", out var res) && res.ValueKind == JsonValueKind.Object)
+                    {
+                        if (res.TryGetProperty("codeType", out var v) && v.ValueKind == JsonValueKind.String) codeType = v.GetString();
+                        if (res.TryGetProperty("code", out v) && v.ValueKind == JsonValueKind.String) code = v.GetString();
+                        if (res.TryGetProperty("description", out v) && v.ValueKind == JsonValueKind.String) description = v.GetString();
+
+                        // most APIs return the created id in "ref"
+                        if (res.TryGetProperty("ref", out v) && v.ValueKind == JsonValueKind.String)
+                            regesContractId = v.GetString();
+                    }
+
+                    // header (optional)
+                    if (root.TryGetProperty("header", out var header) && header.ValueKind == JsonValueKind.Object)
+                    {
+                        if (header.TryGetProperty("operation", out var v) && v.ValueKind == JsonValueKind.String) operation = v.GetString();
+                        if (header.TryGetProperty("authorId", out v) && v.ValueKind == JsonValueKind.String) authorIdStr = v.GetString();
+                    }
+
+                    // fallback: look for any "...Contract... Id" in the payload if "ref" missing
+                    if (string.IsNullOrWhiteSpace(regesContractId))
+                        regesContractId = TryExtractContractIdFallback(root);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine("[POLL] Parse error: " + ex);
+                    await Task.Delay(800, ct);
+                    continue;
+                }
+
+                // update DB row (maps to your RegesContractSync fields)
+                await UpdateContractSyncRowAsync(responseId, codeType, code, description, regesContractId, operation, authorIdStr);
+                return; // done for this receipt
+            }
+        }
+            private async Task UpdateContractSyncRowAsync(
+    string responseId,
+    string codeType,
+    string code,
+    string description,
+    string regesRefStr,
+    string operation,
+    string authorIdStr)
+        {
+            if (!Guid.TryParse(responseId, out var rid))
+            {
+                Debug.WriteLine($"[DB] Invalid responseId (not GUID): {responseId}");
+                return;
+            }
+
+            await using var db = await _dbFactory.CreateDbContextAsync();
+
+            var rec = await db.Set<RegesContractSync>()
+                .FirstOrDefaultAsync(x => x.Id_Rezultat_Mesaj.HasValue && x.Id_Rezultat_Mesaj.Value == rid);
+
+            if (rec == null)
+            {
+                Debug.WriteLine($"[DB] No RegesContractSync row for responseId={responseId}");
+                return;
+            }
+
+            var isError = string.Equals(codeType, "ERROR", StringComparison.OrdinalIgnoreCase);
+            rec.Status = isError ? "Error" : "Success";
+            rec.Error_Message = isError ? description : null;
+
+            if (!string.IsNullOrWhiteSpace(regesRefStr) && Guid.TryParse(regesRefStr, out var regesId))
+                rec.RegesContractId = regesId;
+
+            if (!string.IsNullOrWhiteSpace(authorIdStr) && Guid.TryParse(authorIdStr, out var aid))
+                rec.IdAutor = aid;
+
+            rec.Updated_At = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+
+            Debug.WriteLine($"[DB] Updated RegesContractSync: status={rec.Status}, RegesContractId={rec.RegesContractId}, code={code}");
+        }
+
+
+
+        static string TryExtractContractIdFallback(JsonElement root)
+            {
+                string found = null;
+
+                void TryPickId(JsonElement obj, ref string target)
+                {
+                    foreach (var p in obj.EnumerateObject())
+                    {
+                        if ((p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) || p.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)) &&
+                            p.Value.ValueKind == JsonValueKind.String)
+                        {
+                            var s = p.Value.GetString();
+                            if (!string.IsNullOrWhiteSpace(s)) { target = s; return; }
+                        }
+                    }
+                }
+
+                void Scan(JsonElement el)
+                {
+                    if (found != null) return;
+                    switch (el.ValueKind)
+                    {
+                        case JsonValueKind.Object:
+                            foreach (var prop in el.EnumerateObject())
+                            {
+                                var lname = prop.Name.ToLowerInvariant();
+
+                                if (lname.Contains("referinta") && prop.Value.ValueKind == JsonValueKind.Object)
+                                {
+                                    foreach (var rp in prop.Value.EnumerateObject())
+                                        if (rp.Name.ToLowerInvariant().Contains("contract") && rp.Value.ValueKind == JsonValueKind.Object)
+                                            TryPickId(rp.Value, ref found);
+                                }
+                                if (found != null) break;
+
+                                if (lname.Contains("contract") && prop.Value.ValueKind == JsonValueKind.Object)
+                                    TryPickId(prop.Value, ref found);
+                                if (found != null) break;
+
+                                Scan(prop.Value);
+                                if (found != null) break;
+                            }
+                            break;
+
+                        case JsonValueKind.Array:
+                            foreach (var item in el.EnumerateArray())
+                            {
+                                Scan(item);
+                                if (found != null) break;
+                            }
+                            break;
+                    }
+                }
+
+                try { Scan(root); } catch { }
+                return found;
+          }
+       
 
         private void EnsureSpecialColumns()
         {
@@ -657,72 +1101,155 @@ namespace api_itm.UserControler.Contracts
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
 
-            var rows = await db.ContractsRu
-                 .AsNoTracking()
-                 .OrderBy(c => c.IdContract)
-                 .ThenBy(c => c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
-                 .Select(c => new
-                 {
-                     idContract = c.IdContract,
-                     personId = (int?)null,
-                     dataConsemnare = c.RecordDate,
-                     dataContract = c.ContractDate,
-                     dataInceputContract = c.StartDate,
-                     dataSfarsitContract = c.EndDate,
-                     exceptieDataSfarsitId = c.EndDateExceptionId,
-                     numarContract = c.ContractNumber,
-                     salariu = c.GrossSalary ?? c.BaseSalary ?? c.EmploymentSalary,
-                     tipLocMunca = c.Headquarters,
-                     norma112 = c.Norm112,
-                     durata = c.ContractDuration,
-                     intervalTimpId = c.WorkTimeIntervalId,
-                     repartizareMuncaId = c.WorkDistributionId,
-                     inceputInterval = c.StartHour,
-                     sfarsitInterval = c.EndHour,
-                     statusId = c.ContractStatusId,
-                     modificatLa = c.ModificationDate,
-                     terminareLa = c.TerminationDate,
-                     transferLa = c.TransferDate
-                 })
-                 .ToListAsync();
+            // Base set: only contracts whose person already has a REGES employee id
+            var baseRows = await (
+                from c in db.ContractsRu.AsNoTracking()
+                join rs in db.Set<RegesSync>().AsNoTracking()
+                     on c.PersonId equals rs.PersonId
+                where rs.RegesEmployeeId != null
+                orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
+                select new { C = c, RegesEmployeeId = rs.RegesEmployeeId }
+            ).ToListAsync();
 
+            // contracts that already have a REGES Contract Id (for green/red coloring)
             var greenContractIds = await db.Set<RegesContractSync>()
-    .Where(r => r.RegesContractId != null && r.IdContract != null)
-    .Select(r => r.IdContract!.Value)
-    .Distinct()
-    .ToListAsync();
-             
+                .Where(r => r.RegesContractId != null && r.IdContract != null)
+                .Select(r => r.IdContract!.Value)
+                .Distinct()
+                .ToListAsync();
 
             _contractsWithRegesId = new HashSet<int>(greenContractIds);
+
+            // small helper to safely read single values
+            async Task<string> Safe(Func<Task<string?>> q)
+            {
+                try { return (await q()) ?? ""; } catch { return ""; }
+            }
+
+            var rows = new List<object>(baseRows.Count);
+
+            foreach (var it in baseRows)
+            {
+                var c = it.C;
+
+                // Lookups (same logic/fields you already use in BuildContractPayloadAsync)
+                var endDateExceptionCode = RegesJson.FixText(await Safe(() =>
+                    db.EndDateExceptions
+                      .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
+                      .Select(e => e.EndDateExceptionCode)
+                      .FirstOrDefaultAsync()));
+
+                var isState7 = await db.ContractsState
+                    .Where(s => s.ContractStateId == c.ContractStatusId)
+                    .Select(s => s.ContractStateId == 7)
+                    .FirstOrDefaultAsync();
+
+                var educationLevelCode = await db.FunctionsStat
+                    .Where(f => f.FunctionStatId == c.FunctionStatId)
+                    .Join(db.EducationLevels, f => f.EducationLevelId, e => e.EducationLevelId,
+                          (f, e) => e.EducationLevelCodeReges)
+                    .FirstOrDefaultAsync();
+
+                var workingScheduleCode = await db.WorkScheduleNorm
+                   .Where(w => w.WorkScheduleId == c.NormId)
+                   .Select(w => w.WorkScheduleCode)
+                   .FirstOrDefaultAsync();
+
+                var workingTimeIntervalCode = await db.WorkingTimeIntervals
+                   .Where(wt => wt.WorkingTimeIntervalId == c.WorkTimeIntervalId)
+                   .Select(wt => wt.WorkingTimeIntervalCode)
+                   .FirstOrDefaultAsync();
+
+                var repartizareMunca = await db.WorkDistributionId
+                   .Where(wd => wd.WorkDistributionIdId == c.WorkDistributionId)
+                   .Select(wd => wd.WorkDistributionIdCode)
+                   .FirstOrDefaultAsync();
+
+                var repartizare = await db.WorkTimeAllocation
+                  .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
+                  .Select(wta => wta.WorkTimeAllocationCode)
+                  .FirstOrDefaultAsync();
+
+                var typeContractRuCode = await db.TypeContractRu
+                 .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
+                 .Select(tyr => tyr.TypeContractRuCode)
+                 .FirstOrDefaultAsync();
+
+                var typeContractDurationCode = await db.ContractTypeDuration
+                 .Where(tcd => tcd.ContractTypeDurationId == c.DurationTypeId)
+                 .Select(tcd => tcd.ContractTypeDurationCode)
+                 .FirstOrDefaultAsync();
+
+                Debug.WriteLine("typeContractDurationCode" + typeContractDurationCode);
+
+                var shiftTypeCode = await db.ShiftType
+                 .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
+                 .Select(shift => shift.ShiftTypeCode)
+                 .FirstOrDefaultAsync();
+
+                Debug.WriteLine("shiftTypeCode" + shiftTypeCode);
+
+                var workNormTypeCode = await db.WorkNormType
+                 .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
+                 .Select(n => n.WorkNormTypeCode)
+                 .FirstOrDefaultAsync();
+
+              
+                Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
+
+                // Time window
+                DateTime? inceputInterval = null, sfarsitInterval = null;
+                if (c.StartDate.HasValue && c.StartHour.HasValue)
+                    inceputInterval = c.StartDate.Value.Date + c.StartHour.Value;
+                if (c.StartDate.HasValue && c.EndHour.HasValue)
+                    sfarsitInterval = c.StartDate.Value.Date + c.EndHour.Value;
+
+                // Salary like in payload (rounded to int)
+                int? salariu = c.GrossSalary.HasValue
+                    ? Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
+                    : (int?)null;
+
+                // Shape grid rows with the SAME names you use in the payload/debug
+                rows.Add(new
+                {
+                    idContract = c.IdContract,
+                    numarContract = c.ContractNumber,
+                    dataConsemnare = c.RecordDate,
+                    dataContract = c.ContractDate,
+                    dataInceputContract = c.StartDate,
+
+                    exceptieDataSfarsit = string.IsNullOrWhiteSpace(endDateExceptionCode) ? null : endDateExceptionCode,
+                    radiat = isState7,
+                    salariu = salariu,
+                    moneda = "RON",
+                    nivelStudii = educationLevelCode,
+
+                    norma = workingScheduleCode,
+                    durata = c.ContractDuration,
+                    intervalTimp = workingTimeIntervalCode,
+                    repartizare = repartizareMunca,
+                    repartizareMunca = repartizare,
+                    inceputInterval,
+                    sfarsitInterval,
+                    tipTura = shiftTypeCode,
+
+                    tipContract = typeContractRuCode,
+                    tipDurata = typeContractDurationCode,
+                    tipNorma = workNormTypeCode,
+
+                    tipLocMunca =  "Mobil", //to be completed to do
+                    judetLocMunca = "CL",  //To DO 
+                    regesEmployeeId = it.RegesEmployeeId  
+                });
+            }
 
             dgvAddContracts.AutoGenerateColumns = true;
             dgvAddContracts.DataSource = rows;
 
-#if DEBUG
-            var idCol = dgvAddContracts.Columns
-                .Cast<DataGridViewColumn>()
-                .FirstOrDefault(c => c.DataPropertyName.Equals("idContract", StringComparison.OrdinalIgnoreCase));
-            if (idCol != null)
-            {
-                idCol.Visible = true;
-                idCol.HeaderText = "IdContract DEBUG only";
-                idCol.ReadOnly = true;
-                idCol.DisplayIndex = 0;
-            }
-#endif
-
-            
-            _rowsData = dgvAddContracts.DataSource;                    // List<anon>
-            _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null; // remember anon type
-
-            // // search
-
-            dgvAddContracts.DataSource = rows;
-
-            _allRowsData = rows;                               // full list for filtering
-            _rowsData = dgvAddContracts.DataSource;        // current (possibly filtered/sorted)
-            _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null;
-
+            // keep search/sort helpers working
+            _allRowsData = rows;
+            _rowsData = rows;
+            _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
             UpdateCounts();
             ApplyRowColorsByRegesId();
@@ -938,10 +1465,192 @@ namespace api_itm.UserControler.Contracts
         //    return null;
         //}
 
+        public async Task BindContractsGridAsync(DataGridView dgv)
+        {
+            dgv.AutoGenerateColumns = false;
+            dgv.Columns.Clear();
+
+            void AddText(string dataProperty, string header, int fillWeight = 100)
+            {
+                dgv.Columns.Add(new DataGridViewTextBoxColumn
+                {
+                    DataPropertyName = dataProperty,
+                    HeaderText = header,
+                    AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill,
+                    FillWeight = fillWeight,
+                    ReadOnly = true
+                });
+            }
+
+            // Columns derived from payload/lookups (PersonId intentionally NOT added)
+            AddText(nameof(ContractGridRow.IdContract), "Id");
+            AddText(nameof(ContractGridRow.NumarContract), "Număr");
+            AddText(nameof(ContractGridRow.DataConsemnare), "Data Consemnare");
+            AddText(nameof(ContractGridRow.DataContract), "Data Contract");
+            AddText(nameof(ContractGridRow.DataInceputContract), "Data Început");
+
+            AddText(nameof(ContractGridRow.ExceptieDataSfarsit), "Exceptie Sfârșit");
+            AddText(nameof(ContractGridRow.Radiat), "Radiat");
+            AddText(nameof(ContractGridRow.Salariu), "Salariu");
+            AddText(nameof(ContractGridRow.Moneda), "Monedă");
+            AddText(nameof(ContractGridRow.NivelStudii), "Nivel Studii");
+
+            AddText(nameof(ContractGridRow.Norma), "Norma");
+            AddText(nameof(ContractGridRow.Durata), "Durata");
+            AddText(nameof(ContractGridRow.IntervalTimp), "Interval Timp");
+            AddText(nameof(ContractGridRow.Repartizare), "Repartizare");
+            AddText(nameof(ContractGridRow.RepartizareMunca), "Repartizare Muncă");
+            AddText(nameof(ContractGridRow.InceputInterval), "Început Interval");
+            AddText(nameof(ContractGridRow.SfarsitInterval), "Sfârșit Interval");
+            AddText(nameof(ContractGridRow.TipTura), "Tip Tură");
+
+            AddText(nameof(ContractGridRow.TipContract), "Tip Contract");
+            AddText(nameof(ContractGridRow.TipDurata), "Tip Durată");
+            AddText(nameof(ContractGridRow.TipNorma), "Tip Normă");
+            AddText(nameof(ContractGridRow.TipLocMunca), "Tip Loc Muncă");
+
+            AddText(nameof(ContractGridRow.RegesEmployeeId), "REGES Ref");
+
+            // Bind
+            var data = await LoadContractGridRowsAsync();
+            dgv.DataSource = new BindingList<ContractGridRow>(data);
+        }
+
+        private async Task<List<ContractGridRow>> LoadContractGridRowsAsync()
+        {
+            await using var _db = await _dbFactory.CreateDbContextAsync();
+
+            // Pull contracts joined with REGES employee reference (filter by reference id, not by showing PersonId)
+            var baseRows = await (
+                from c in _db.ContractsRu.AsNoTracking()
+                join rs in _db.Set<RegesSync>().AsNoTracking()
+                     on c.PersonId equals rs.PersonId
+                where rs.RegesEmployeeId != null
+                select new { c, rs.RegesEmployeeId }
+            )
+            .OrderBy(x => x.c.IdContract)
+            .ToListAsync();
+
+            // Helper: safe single-value lookup
+            async Task<string> Safe(Func<Task<string?>> q)
+            {
+                try { return (await q()) ?? ""; } catch { return ""; }
+            }
+
+            var rows = new List<ContractGridRow>(baseRows.Count);
+
+            foreach (var item in baseRows)
+            {
+                var c = item.c;
+
+                // Lookups (same as in BuildContractPayloadAsync)
+                var endDateExceptionCode = RegesJson.FixText(await Safe(() =>
+                    _db.EndDateExceptions
+                       .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
+                       .Select(e => e.EndDateExceptionCode)
+                       .FirstOrDefaultAsync()));
+
+                var isState7 = await _db.ContractsState
+                    .Where(s => s.ContractStateId == c.ContractStatusId)
+                    .Select(s => s.ContractStateId == 7)
+                    .FirstOrDefaultAsync();
+
+                var educationLevelCode = await _db.FunctionsStat
+                    .Where(f => f.FunctionStatId == c.FunctionStatId)
+                    .Join(_db.EducationLevels, f => f.EducationLevelId, e => e.EducationLevelId,
+                          (f, e) => e.EducationLevelCodeReges)
+                    .FirstOrDefaultAsync();
+
+                var workingScheduleCode = await _db.WorkScheduleNorm
+                    .Where(w => w.WorkScheduleId == c.NormId)
+                    .Select(w => w.WorkScheduleCode)
+                    .FirstOrDefaultAsync();
+
+                var workingTimeIntervalCode = await _db.WorkingTimeIntervals
+                    .Where(wt => wt.WorkingTimeIntervalId == c.WorkTimeIntervalId)
+                    .Select(wt => wt.WorkingTimeIntervalCode)
+                    .FirstOrDefaultAsync();
+
+                var repartizareMunca = await _db.WorkDistributionId
+                    .Where(wd => wd.WorkDistributionIdId == c.WorkDistributionId)
+                    .Select(wd => wd.WorkDistributionIdCode)
+                    .FirstOrDefaultAsync();
+
+                var repartizare = await _db.WorkTimeAllocation
+                    .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
+                    .Select(wta => wta.WorkTimeAllocationCode)
+                    .FirstOrDefaultAsync();
+
+                var typeContractRuCode = await _db.TypeContractRu
+                    .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
+                    .Select(tyr => tyr.TypeContractRuCode)
+                    .FirstOrDefaultAsync();
+
+                var typeContractDurationCode = await _db.ContractTypeDuration
+                    .Where(tcd => tcd.ContractTypeDurationCode == c.DurationTypeId.ToString())
+                    .Select(tcd => tcd.ContractTypeDurationCode)
+                    .FirstOrDefaultAsync();
+
+                var shiftTypeCode = await _db.ShiftType
+                    .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
+                    .Select(shift => shift.ShiftTypeCode)
+                    .FirstOrDefaultAsync();
+
+                var workNormTypeCode = await _db.WorkNormType
+                    .Where(n => n.WorkNormTypeId == c.NormId)
+                    .Select(n => n.WorkNormTypeCode)
+                    .FirstOrDefaultAsync();
+
+                // Time window
+                DateTime? inceputInterval = null, sfarsitInterval = null;
+                if (c.StartDate.HasValue && c.StartHour.HasValue)
+                    inceputInterval = c.StartDate.Value.Date + c.StartHour.Value;
+                if (c.StartDate.HasValue && c.EndHour.HasValue)
+                    sfarsitInterval = c.StartDate.Value.Date + c.EndHour.Value;
+
+                // Salary (rounded as in payload)
+                int? salariu = c.GrossSalary.HasValue
+                    ? Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
+                    : (int?)null;
+
+                rows.Add(new ContractGridRow
+                {
+                    IdContract = c.IdContract,
+                    NumarContract = c.ContractNumber,
+                    DataConsemnare = c.RecordDate,
+                    DataContract = c.ContractDate,
+                    DataInceputContract = c.StartDate,
+
+                    ExceptieDataSfarsit = string.IsNullOrWhiteSpace(endDateExceptionCode) ? null : endDateExceptionCode,
+                    Radiat = isState7,
+                    Salariu = salariu,
+                    Moneda = "RON",
+                    NivelStudii = educationLevelCode,
+
+                    Norma = workingScheduleCode,
+                    Durata = c.ContractDuration.HasValue ? Convert.ToInt32(c.ContractDuration.Value) : (int?)null,
+                    IntervalTimp = workingTimeIntervalCode,
+                    Repartizare = repartizareMunca,
+                    RepartizareMunca = repartizare,
+                    InceputInterval = inceputInterval,
+                    SfarsitInterval = sfarsitInterval,
+                    TipTura = shiftTypeCode,
+
+                    TipContract = typeContractRuCode,
+                    TipDurata = typeContractDurationCode,
+                    TipNorma = workNormTypeCode,
+
+                    TipLocMunca = c.Headquarters,
+                    RegesEmployeeId = item.RegesEmployeeId
+                });
+            }
+
+            return rows;
+        }
 
 
         // Step 0: Build payload from DB (uses exactly your mapper + names, no defaults)
-        private async Task<ContractEnvelope> BuildContractPayloadAsync(int idContract)
+        public async Task<ContractEnvelope> BuildContractPayloadAsync(int idContract)
         {
             await using var _db = await _dbFactory.CreateDbContextAsync();
 
@@ -975,12 +1684,12 @@ namespace api_itm.UserControler.Contracts
             var educationLevelCode = await _db.FunctionsStat
                 .Where(f => f.FunctionStatId == c.FunctionStatId)
                 .Join(_db.EducationLevels, f => f.EducationLevelId, e => e.EducationLevelId,
-                      (f, e) => e.EducationLevelCode)
+                      (f, e) => e.EducationLevelCodeReges)
                 .FirstOrDefaultAsync();
 
             var workingscheduleCode = await _db.WorkScheduleNorm
                .Where(w => w.WorkScheduleId == c.NormId)
-               .Select(w=> w.WorkScheduleCode)
+               .Select(w => w.WorkScheduleCode)
                .FirstOrDefaultAsync();
 
             var workingTimeIntervalCode = await _db.WorkingTimeIntervals
@@ -988,28 +1697,29 @@ namespace api_itm.UserControler.Contracts
                .Select(wt => wt.WorkingTimeIntervalCode)
                .FirstOrDefaultAsync();
 
-
-            var workDistributionCode = await _db.WorkDistributionId
+            var repartizareMunca = await _db.WorkDistributionId
                .Where(wd => wd.WorkDistributionIdId == c.WorkDistributionId)
                .Select(wd => wd.WorkDistributionIdCode)
                .FirstOrDefaultAsync(); //WorkDistributionIds
 
-            Debug.WriteLine("workDistributionCode: " + workDistributionCode);
+            Debug.WriteLine("repartizareMunca: " + repartizareMunca);
 
-            var workTimeAllocationCode = await _db.WorkTimeAllocation
+            var repartizare = await _db.WorkTimeAllocation
               .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
               .Select(wta => wta.WorkTimeAllocationCode)
               .FirstOrDefaultAsync(); //ShiftType
+
+            Debug.WriteLine("repartizare:" + repartizare);
 
             var typeContractRuCode = await _db.TypeContractRu
              .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
              .Select(tyr => tyr.TypeContractRuCode)
              .FirstOrDefaultAsync();//TypeContractRu
 
-            var typeContractDurationCode = await _db.ContractTypeDuration
-             .Where(tcd => tcd.ContractTypeDurationCode == c.DurationTypeId.ToString())
-             .Select(tcd => tcd.ContractTypeDurationCode)
-             .FirstOrDefaultAsync(); //ContractTypeDuration
+            var typeContractDurationCode = await ResolveContractTypeDurationCodeAsync(_db, c.DurationTypeId);
+
+
+            Debug.WriteLine("typeContractDurationCode" + typeContractDurationCode);
 
 
             var shiftTypeCode = await _db.ShiftType
@@ -1017,20 +1727,47 @@ namespace api_itm.UserControler.Contracts
              .Select(shift => shift.ShiftTypeCode)
              .FirstOrDefaultAsync(); //ShiftType
 
+            Debug.WriteLine("shiftTypeCode" + shiftTypeCode);
 
             var workNormTypeCode = await _db.WorkNormType
-             .Where(shift => shift.WorkNormTypeId == c.NormId)
-             .Select(shift => shift.WorkNormTypeCode)
-             .FirstOrDefaultAsync(); //WorkNormType
+                  .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
+                  .Select(n => n.WorkNormTypeCode)
+                  .FirstOrDefaultAsync();
 
-            //var countyCode = await _db.County
-            //.Where(cc => cc.CountyId == c.)
-            //.Select(cc => cc.WorkNormTypeCode)
-            //.FirstOrDefaultAsync(); //County
+            Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
+
+            // Find REGES employee id for this contract's person
+            var regesEmployeeGuid = await _db.Set<RegesSync>()
+                .AsNoTracking()
+                .Where(rs => rs.PersonId == c.PersonId && rs.RegesEmployeeId != null)
+                .OrderByDescending(rs => rs.UpdatedAt)
+                .Select(rs => rs.RegesEmployeeId)
+                .FirstOrDefaultAsync();
+
+            var Code = await _db.WorkNormType
+               .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
+               .Select(n => n.WorkNormTypeCode)
+               .FirstOrDefaultAsync();
+
+            var worktypelocationtype = await _db.WorkLocationType
+              .Where(wlt => wlt.WorkLocationTypeId == c.WorkTypeID)
+              .Select(wlt => wlt.WorkLocationTypeCode)
+              .FirstOrDefaultAsync();
+
+            var versionCor = await _db.RegesCor
+              .Where(cor => cor.Code.ToString() == c.OccupationCode)
+              .Select(cor => cor.Version)  //c.OccupationCode
+              .FirstOrDefaultAsync();
+
+            Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
+            var salariatRefId = regesEmployeeGuid?.ToString("D") ?? "";
+            if (string.IsNullOrWhiteSpace(salariatRefId))
+                throw new InvalidOperationException($"No REGES employee Id for person {c.PersonId}; cannot build contract.");
 
             Debug.WriteLine($"[DEBUG] Contract {c.IdContract} | FunctionStatId={c.FunctionStatId} => EducationLevelCode='{educationLevelCode}'");
 
-            // 3b) SPORURI from contracte_sporuri x tipspor (by contract)
+
+            // 3b) SPORURI
             var sporRows = await _db.Set<ContractBonuses>()
                 .AsNoTracking()
                 .Where(b => b.IdContract == c.IdContract)
@@ -1052,9 +1789,7 @@ namespace api_itm.UserControler.Contracts
             var sporuri = new List<SporSalariu>();
             foreach (var x in sporRows)
             {
-                // Percent only if ValoareSporProcent has a non-null, non-zero value
                 bool isPercent = x.ValoareSporProcent.HasValue && x.ValoareSporProcent.Value != 0m;
-
                 var value = isPercent ? x.ValoareSporProcent!.Value : (x.ValoareSpor ?? 0m);
                 if (value <= 0m) continue;
 
@@ -1077,83 +1812,95 @@ namespace api_itm.UserControler.Contracts
             }
 
             // 4) Time window
-            DateTime? inceputInterval = null, sfarsitInterval = null;
-            if (c.StartDate.HasValue && c.StartHour.HasValue)
-                inceputInterval = c.StartDate.Value.Date + c.StartHour.Value;
-            if (c.StartDate.HasValue && c.EndHour.HasValue)
-                sfarsitInterval = c.StartDate.Value.Date + c.EndHour.Value;
+            DateTime? startDate = c.StartDate;   // din contracte_ru
+            TimeSpan? startHour = c.StartHour;   // din contracte_ru.ora_inceput
+            TimeSpan? endHour = c.EndHour;     // din contracte_ru.ora_sfarsit
 
+            DateTime? inceputInterval = (startDate.HasValue && startHour.HasValue)
+                ? startDate.Value.Date + startHour.Value
+                : (DateTime?)null;
+
+            DateTime? sfarsitInterval = (startDate.HasValue && endHour.HasValue)
+                ? startDate.Value.Date + endHour.Value
+                : (DateTime?)null;
+
+            // pentru vizibilitate în Output:
+            Debug.WriteLine($"[DEBUG] IdContract={c.IdContract} StartDate={startDate:yyyy-MM-dd} " +
+                            $"StartHour={(startHour.HasValue ? startHour.Value.ToString(@"hh\:mm") : "<null>")} " +
+                            $"EndHour={(endHour.HasValue ? endHour.Value.ToString(@"hh\:mm") : "<null>")} " +
+                            $"=> inceputInterval={inceputInterval:yyyy-MM-ddTHH:mm:ss.fff} " +
+                            $"sfarsitInterval={sfarsitInterval:yyyy-MM-ddTHH:mm:ss.fff}");
+             
             // 5) COR parse
             static int TryParseInt(string? s) => int.TryParse(s, out var n) ? n : 0;
 
             // 6) Build payload
             var continut = new ContinutContract
             {
-                ReferintaSalariat = new Models.Contracts.Envelope.ReferintaSalariat { Id = "" }, // TODO
+                ReferintaSalariat = new Models.Contracts.Envelope.ReferintaSalariat { Id = salariatRefId },
 
                 Cor = new Cor
                 {
                     Cod = TryParseInt(c.OccupationCode),
-                    Versiune = 0
+                    Versiune = versionCor
                 },
 
                 DataConsemnare = c.RecordDate,
                 DataContract = c.ContractDate,
                 DataInceputContract = c.StartDate,
-
+                DataSfarsitContract = c.EndDate,
                 ExceptieDataSfarsit = string.IsNullOrWhiteSpace(endDateExceptionCode) ? null : endDateExceptionCode,
 
                 NumarContract = c.ContractNumber ?? "",
                 Radiat = isState7,
 
-                Salariu = c.GrossSalary,
+                Salariu = c.GrossSalary.HasValue
+                    ? (int?)Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
+                    : null,
                 Moneda = "RON",
                 NivelStudii = educationLevelCode,
 
-                SporuriSalariu = sporuri,
+                // 🔧 Only change: omit when empty to satisfy schema
+                SporuriSalariu = (sporuri.Count > 0) ? sporuri : null,
 
-                StareCurenta = new StareCurenta(), //  Starea curenta a contractului. Se trimite ca element gol de catre client. In interogari este intors
-                //populat corespunzator de catre server
+                StareCurenta = new StareCurenta(),
 
                 TimpMunca = new TimpMunca
                 {
                     Norma = workingscheduleCode,
                     Durata = c.ContractDuration.HasValue ? (int?)Convert.ToInt32(c.ContractDuration.Value) : null,
                     IntervalTimp = workingTimeIntervalCode,
-                    Repartizare = workDistributionCode, //cateodata id ul este 0 si nu apare
-                    RepartizareMunca = workTimeAllocationCode, //ex. "Zilnic"  //cateodata id ul este 0 si nu apare
+                    Repartizare = repartizare,  //
+                    RepartizareMunca = repartizareMunca, //repartizareMunca
                     InceputInterval = inceputInterval,
                     SfarsitInterval = sfarsitInterval,
-                    //NotaRepartizareMunca = null,
                     TipTura = shiftTypeCode,
-                    //ObservatiiTipTuraAlta = null
                 },
 
                 TipContract = typeContractRuCode,
                 TipDurata = typeContractDurationCode,
                 TipNorma = workNormTypeCode,
-                TipLocMunca = c.Headquarters,
-                JudetLocMunca = null,
+                TipLocMunca =  "Mobil", // worktypelocationtype, //hardcode, to !!!
+                JudetLocMunca = "CJ", //do
 
                 AplicaL153 = null,
 
-                DetaliiL153 = new DetaliiL153 // in salarycontractru
-                { 
-                     //AnexaL153                   = c.L153AnnexCode,
-                     //CapitolL153                 = c.L153CapitolCode,
-                     //LiteraL153                  = c.L153LiteraCode,
-                     //ClasificareSuplimentaraL153 = c.L153ClasifCode,
-                     //FunctieL153                 = c.L153FunctieCode,
-                     //SpecialitateFunctieL153     = c.L153SpecFunctieCode,
-                     //StructuraAprobataL153       = c.L153StructuraCode,
-                     //SpecialitateStructuraAprobataL153 = c.L153SpecStructuraCode,
-                     //GradProfesionalL153         = c.L153GradProfCode,
-                     //GradatieL153                = c.L153GradatieCode,
-                     //DenumireAltaFunctieL153     = c.L153AltaFunctieName,
-                     //ExplicatieFunctieL153       = c.L153ExplicatieFunctie,
-                     //AltGradProfesionalL153      = c.L153AltGradProfText
-                }
-            };
+                DetaliiL153 = new DetaliiL153 {
+                    // AnexaL153 = c.L153AnnexCode,
+                    // CapitolL153 = c.L153CapitolCode,
+                    // LiteraL153 = c.L153LiteraCode,
+                    // ClasificareSuplimentaraL153 = c.L153ClasifCode,
+                    // FunctieL153 = c.L153FunctieCode,
+                    // SpecialitateFunctieL153 = c.L153SpecFunctieCode,
+                    // StructuraAprobataL153 = c.L153StructuraCode,
+                    // SpecialitateStructuraAprobataL153 = c.L153SpecStructuraCode,
+                    // GradProfesionalL153 = c.L153GradProfCode,
+                    // GradatieL153 = c.L153GradatieCode,
+                    // DenumireAltaFunctieL153 = c.L153AltaFunctieName,
+                    // ExplicatieFunctieL153 = c.L153ExplicatieFunctie,
+                    // AltGradProfesionalL153 = c.L153AltGradProfText
+                    }
+                };
 
             var envelope = new ContractEnvelope
             {
@@ -1175,10 +1922,93 @@ namespace api_itm.UserControler.Contracts
             return envelope;
         }
 
+        private static async Task<string?> ResolveContractTypeDurationCodeAsync(
+    AppDbContext db,
+    int? durationTypeId,
+    bool verbose = true,
+    bool listAllOnMiss = true)
+        {
+            var idText = durationTypeId?.ToString();
+
+            if (verbose)
+                Debug.WriteLine($"[CTD] DurationTypeId={durationTypeId}  as string='{idText}'");
+
+            // 1) Prefer match by Id (most reliable)
+            var qById = db.ContractTypeDuration
+                .AsNoTracking()
+                .Where(t => t.ContractTypeDurationId == durationTypeId)
+                .Select(t => new { t.ContractTypeDurationId, t.ContractTypeDurationCode })
+                .TagWith("CTD Resolve: by Id");
+
+            if (verbose)
+            {
+                Debug.WriteLine("[CTD] SQL (by Id):");
+                Debug.WriteLine(qById.ToQueryString()); // EF Core 5+
+            }
+
+            var row = await qById.FirstOrDefaultAsync();
+            if (row != null)
+            {
+                if (verbose)
+                    Debug.WriteLine($"[CTD] MATCH by Id => Id={row.ContractTypeDurationId}, Code='{row.ContractTypeDurationCode}'");
+                return row.ContractTypeDurationCode;
+            }
+
+            // 2) Fallback: match by Code == DurationTypeId.ToString()
+            var qByCode = db.ContractTypeDuration
+                .AsNoTracking()
+                .Where(t => t.ContractTypeDurationCode == idText)
+                .Select(t => new { t.ContractTypeDurationId, t.ContractTypeDurationCode })
+                .TagWith("CTD Resolve: by Code == DurationTypeId.ToString()");
+
+            if (verbose)
+            {
+                Debug.WriteLine("[CTD] SQL (by Code):");
+                Debug.WriteLine(qByCode.ToQueryString());
+            }
+
+            var row2 = await qByCode.FirstOrDefaultAsync();
+            if (row2 != null)
+            {
+                if (verbose)
+                    Debug.WriteLine($"[CTD] MATCH by Code => Id={row2.ContractTypeDurationId}, Code='{row2.ContractTypeDurationCode}'");
+                return row2.ContractTypeDurationCode;
+            }
+
+            // 3) Nothing matched — list available rows to eyeball mismatches (padding, etc.)
+            if (listAllOnMiss)
+            {
+                var all = await db.ContractTypeDuration
+                    .AsNoTracking()
+                    .OrderBy(x => x.ContractTypeDurationId)
+                    .Select(x => new { x.ContractTypeDurationId, x.ContractTypeDurationCode })
+                    .ToListAsync();
+
+                Debug.WriteLine("[CTD] No match. Available ContractTypeDuration rows:");
+                foreach (var r in all)
+                    Debug.WriteLine($"  Id={r.ContractTypeDurationId}, Code='{r.ContractTypeDurationCode}'");
+            }
+
+            return null;
+        }
+
         // Step 1: Send one payload -> get synchronous MessageResponse (recipisa)
         private async Task<SyncResponse> SendOneAsync(int idContract)
         {
+            // 0) Build payload exactly as before
             var payload = await BuildContractPayloadAsync(idContract);
+             
+            // 1) Validate required fields
+            bool mustValidate = true;   // RELEASE: always validate
+#if DEBUG
+            mustValidate = _debugValidate; // DEBUG: controlled by checkbox
+#endif
+
+            if (mustValidate && !GuardRequiredFieldsOrWarn(payload.Continut, idContract))
+                throw new InvalidOperationException("Câmpuri obligatorii lipsă – trimitere blocată.");
+
+
+            // 2) Serialize after validation (unchanged)
             var json = RegesJson.SanitizeAndSerialize(payload);
 
             using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
@@ -1200,9 +2030,61 @@ namespace api_itm.UserControler.Contracts
                        ?? throw new InvalidOperationException("Empty sync response.");
 
             Debug.WriteLine($"[SYNC OK] contractId={idContract}, responseId={sync.responseId}, messageId={sync.header?.messageId}");
-
             return sync;
         }
+        // Put this in your control/form class (where SendSelectedAsync lives)
+        private static (bool IsValid, List<string> Missing) ValidateRequiredForContract(ContinutContract cont)
+        {
+            var missing = new List<string>();
+
+            // Helper for date display
+            static string D(DateTime? dt) => dt?.ToString("yyyy-MM-dd") ?? "<null>";
+
+            // Required always
+            if (cont == null) { missing.Add("Conținut contract (null)"); return (false, missing); }
+            if (cont.Cor == null || cont.Cor.Cod <= 0) missing.Add("COR.cod");
+            if (!cont.DataConsemnare.HasValue) missing.Add("dataConsemnare");
+            if (!cont.DataContract.HasValue) missing.Add("dataContract");
+            if (!cont.DataInceputContract.HasValue) missing.Add("dataInceputContract");
+            if (string.IsNullOrWhiteSpace(cont.NumarContract)) missing.Add("numarContract");
+
+            // salariu (int?) required by cerința ta
+            if (!cont.Salariu.HasValue || cont.Salariu.Value <= 0) missing.Add("salariu");
+
+            // tipContract, tipDurata, tipNorma, tipLocMunca – always check
+            if (string.IsNullOrWhiteSpace(cont.TipContract)) missing.Add("tipContract");
+            if (string.IsNullOrWhiteSpace(cont.TipDurata)) missing.Add("tipDurata");
+            if (string.IsNullOrWhiteSpace(cont.TipNorma)) missing.Add("tipNorma");
+            if (string.IsNullOrWhiteSpace(cont.TipLocMunca)) missing.Add("tipLocMunca");
+
+            // judetLocMunca – Obligatoriu pentru contractele adăugate/modificate cu dataConsemnare după 01.04.2025
+            var cutoff = new DateTime(2025, 4, 1);
+            var needsCounty = cont.DataConsemnare.HasValue && cont.DataConsemnare.Value.Date >= cutoff;
+            if (needsCounty && string.IsNullOrWhiteSpace(cont.JudetLocMunca))
+                missing.Add("judetLocMunca (obligatoriu pentru dataConsemnare ≥ 2025-04-01)");
+
+            // Optionally: validate TimpMunca subfields if you want (left as-is since nu ai cerut)
+
+            return (missing.Count == 0, missing);
+        }
+
+        private bool GuardRequiredFieldsOrWarn(ContinutContract cont, int idContract)
+        {
+            var (ok, missing) = ValidateRequiredForContract(cont);
+            if (ok) return true;
+
+            var msg =
+                "Nu pot trimite contractul deoarece lipsesc câmpuri obligatorii:\n" +
+                string.Join("\n", missing.Select(m => " • " + m)) +
+                $"\n\nIdContract: {idContract}\n" +
+                $"DataConsemnare: {(cont?.DataConsemnare?.ToString("yyyy-MM-dd") ?? "<null>")}";
+
+            MessageBox.Show(msg, "REGES – câmpuri obligatorii lipsă",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+            return false;
+        }
+
 
         private string GetAccessToken()
         {
@@ -1277,6 +2159,30 @@ namespace api_itm.UserControler.Contracts
         {
 
         }
+
+        sealed class DateTimeMsConverter : JsonConverter<DateTime>
+        {
+            private const string F = "yyyy-MM-dd'T'HH:mm:ss.fff";
+            public override DateTime Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
+                => DateTime.Parse(r.GetString()!);
+            public override void Write(Utf8JsonWriter w, DateTime v, JsonSerializerOptions o)
+                => w.WriteStringValue(v.ToString(F));
+        }
+
+        sealed class NullableDateTimeMsConverter : JsonConverter<DateTime?>
+        {
+            private const string F = "yyyy-MM-dd'T'HH:mm:ss.fff";
+            public override DateTime? Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
+                => r.TokenType == JsonTokenType.Null ? (DateTime?)null : DateTime.Parse(r.GetString()!);
+            public override void Write(Utf8JsonWriter w, DateTime? v, JsonSerializerOptions o)
+            {
+                if (v.HasValue) w.WriteStringValue(v.Value.ToString(F));
+                else w.WriteNullValue();
+            }
+        }
+
+       
+
     }
 
 }

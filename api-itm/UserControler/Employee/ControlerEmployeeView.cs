@@ -56,6 +56,7 @@ namespace api_itm.UserControler.Employee
         private const string ReadMessageUrl = "api/Status/ReadMessage";   // POST, no body
         private const string CommitReadUrl = "api/Status/CommitRead";    // POST, no body
 
+
         #if DEBUG
                 private const bool DEBUG_SHOW_PERSON_ID = true;
         #else
@@ -165,7 +166,7 @@ namespace api_itm.UserControler.Employee
             // Second row: Select-all + counter
             _chkSelectAll = new CheckBox
             {
-                Text = "Selecteaza toati salariatii",
+                Text = "Selecteaza toti salariatii",
                 AutoSize = true,
                 Margin = new Padding(0, 0, 16, 0)
             };
@@ -349,14 +350,25 @@ namespace api_itm.UserControler.Employee
         }
 
         private async Task LoadEmployeesAsync()
-        {  
-
+        {
             // 1) Raw read + lookups needed for payload-like values
             var raw = await (
-                from p in _db.People
-                where p.Status == "A"
+                  from p in _db.People
+                  where p.Status == "A"
 
-                from c in _db.Countries
+                  // LEFT JOIN contracts, but pre-filter contracts to status=1
+                  join cr0 in _db.ContractsRu.Where(x =>
+       x.ContractStatusId == 1
+    || x.ContractStatusId == 2
+    || x.ContractStatusId == 3)
+                      on p.PersonId equals cr0.PersonId into pc
+                  from cr in pc.DefaultIfEmpty()
+
+                      // keep only rows that actually matched an active contract
+                  where cr != null
+
+
+                  from c in _db.Countries
                      .Where(x => x.CountryId == p.DomicileCountryId)
                      .DefaultIfEmpty()
 
@@ -393,6 +405,7 @@ namespace api_itm.UserControler.Employee
 
                     // pentru fallback-uri (aceleași ca în payload)
                     DomicileCountryRevisal = c.CountryNameRevisal,
+                    CountryName = c.CountryName, // if ever needed
                     IdentityDocumentName = a.IdentityDocumentName,
                     IdentityDocumentCode = a.IdentityDocumentCode,
                     p.IdentityDocTypeId,
@@ -408,6 +421,8 @@ namespace api_itm.UserControler.Employee
                     p.HandicapCertificateNumber,
                     p.DisabilityReviewDate,
 
+                    p.InvalidityGradeId, // for GradInvaliditate
+
                     p.WorkPermitStartDate,
                     p.WorkPermitEndDate,
                     WorkPermitTypeName = wpt.WorkPermitName,
@@ -417,53 +432,60 @@ namespace api_itm.UserControler.Employee
             .AsNoTracking()
             .ToListAsync();
 
-            // 2) Proiecția finală pentru DGV (oglindă a câmpurilor din JSON, cu fallback-uri umplute)
+            // 2) Proiecția finală pentru DGV (oglindă a câmpurilor din JSON, plus debug)
             var rows = raw.Select(r =>
             {
-                // același “isPassport” ca în payload
-                var isPassport = r.IdentityDocTypeId != 0 &&
-                                 r.IdentityDocTypeId != 1 &&
-                                 r.IdentityDocTypeId != 2 &&
-                                 r.IdentityDocTypeId != 7 &&
-                                 r.IdentityDocTypeId != 9;
-
-                var includeHandicap = r.HandicapTypeId >= 1 && r.HandicapTypeId <= 10;
+                // “passport” ca în payload
+              
 
                 // fallback-uri identice cu payload
                 var taraDomiciliu = RegesJson.FixText(r.DomicileCountryRevisal) ?? "";
                 var nationalitate = RegesJson.Norma(taraDomiciliu) ?? taraDomiciliu;
-                var tipAct = r.IdentityDocumentName ?? r.IdentityDocumentCode ?? "";
+
+                // în payload: TipActIdentitate = IdentityDocumentCode
+                var tipActCode = r.IdentityDocumentCode ?? r.IdentityDocumentName ?? "";
+
+                // în payload: GradInvaliditate -> "GradX" dacă există (same quick rule you used)
+                string gradInvaliditate = null;
+                
 
                 return new
                 {
-                    // coloane de bază
+                    // === DEBUG + key (ca în DGV) ===
                     personId = r.PersonId,
-                    codSiruta = r.SirutaCode,
-                    adresa = r.Address,
-                    cnp = r.NationalId,
-                    nume = r.LastName,
-                    prenume = r.FirstName,
-                    dataNastere = r.BirthDate,
 
-                    // aceleași nume ca în gridul tău anterior + payload
-                    Nationalitate = nationalitate,
-                    TaraDomiciliu = taraDomiciliu,
-                    tipActIdentitate = tipAct,
-                    apatrid = r.ApatridName,
+                    // === Info.* (nume/valori ca în JSON) ===
+                    CodSiruta = r.SirutaCode,                                   // info.localitate.codSiruta (flatten leaf)
+                    Adresa = r.Address,                                         // info.adresa
+                    Cnp = r.NationalId,                                         // info.cnp
+                    Nume = r.LastName,                                          // info.nume
+                    Prenume = r.FirstName,                                      // info.prenume
+                    DataNastere = r.BirthDate,                                  // info.dataNastere min ocurance 0
+
+                    // NamedEntity -> afișăm .Nume
+                    Nationalitate = nationalitate,                              // info.nationalitate.nume
+                    TaraDomiciliu = taraDomiciliu,                              // info.taraDomiciliu.nume
+
+                    TipActIdentitate = tipActCode,                              // info.tipActIdentitate
 
                     // handicap – numai dacă se încadrează
-                    tipHandicap = includeHandicap ? r.HandicapTypeName : null,
-                    gradHandicap = includeHandicap ? r.DisabilityGradeName : null,
-                    dataCertificatHandicap = includeHandicap ? r.HandicapCertificateDate : null,
-                    numarCertificatHandicap = includeHandicap ? r.HandicapCertificateNumber : null,
-                    dataValabilitateCertificatHandicap = includeHandicap ? r.DisabilityReviewDate : null,
+                    TipHandicap =  r.HandicapTypeName ,              // info.tipHandicap
+                    GradHandicap =  r.DisabilityGradeName,          // info.gradHandicap
+                    DataCertificatHandicap =  r.HandicapCertificateDate, // info.dataCertificatHandicap
+                    NumarCertificatHandicap =  r.HandicapCertificateNumber , // info.numarCertificatHandicap
+                    DataValabilitateCertificatHandicap =  r.DisabilityReviewDate, // info.dataValabilitateCertificatHandicap
+                    GradInvaliditate = gradInvaliditate,           // info.gradInvaliditate (same heuristic)
 
-                    // detalii salariat străin – aceleași denumiri ca în proiecția ta veche
-                    dataInceputAutorizatie = isPassport ? r.WorkPermitStartDate : null,
-                    dataSfarsitAutorizatie = isPassport ? r.WorkPermitEndDate : null,
-                    tipAutorizatie = isPassport ? r.WorkPermitTypeName : null,
-                    tipAutorizatieExceptie = isPassport ? r.WorkPermitTypeName : null, // păstrează logica existentă
-                    numarAutorizatie = isPassport ? r.ApprovalNumber : null
+                    // câmpuri simple din payload (populate ca în BuildPayload)
+                    Mentiuni = "",                                                         // info.mentiuni
+                    MotivRadiere = "",                                                     // info.motivRadiere
+
+                    // detaliiSalariatStrain – doar la pașaport (ca în payload)
+                    DetaliiSalariatStrain_DataInceputAutorizatie = r.WorkPermitStartDate,
+                    DetaliiSalariatStrain_DataSfarsitAutorizatie =  r.WorkPermitEndDate ,
+                    DetaliiSalariatStrain_TipAutorizatie = r.WorkPermitTypeName ,
+                    DetaliiSalariatStrain_TipAutorizatieExceptie =  r.WorkPermitTypeName ,
+                    DetaliiSalariatStrain_NumarAutorizatie = r.ApprovalNumber 
                 };
             })
             .ToList();
@@ -486,20 +508,15 @@ namespace api_itm.UserControler.Employee
             _rowsData = dgvViewSalariati.DataSource;                    // List<anon>
             _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null; // remember anon type
 
-
             // //search
             dgvViewSalariati.DataSource = rows;
 
-            _allRowsData = rows;                               // full list for filtering
-            _rowsData = dgvViewSalariati.DataSource;        // current (possibly filtered/sorted)
+            _allRowsData = rows;                         // full list for filtering
+            _rowsData = dgvViewSalariati.DataSource;     // current (possibly filtered/sorted)
             _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null;
-
-
 
             //  after DataSource
             ApplyRowColorsByRegesId();
-
-
         }
 
         private void ApplySearchFilter()
@@ -799,10 +816,41 @@ namespace api_itm.UserControler.Employee
 
             int ok = 0, fail = 0;
 
+            // collect failures to show at the end in a window
+            var failures = new List<(int personId, string name, string cnp, string error)>();
+
             foreach (var personId in ids)
             {
                 try
                 {
+                    // ✅ VALIDARE câmpuri obligatorii — dacă lipsesc, NU trimitem JSON
+                    var missing = await ValidateRequiredAsync(personId);
+                    if (missing.Count > 0)
+                    {
+                        fail++;
+
+                        var pmeta = await _db.People
+                            .Where(x => x.PersonId == personId)
+                            .Select(x => new { x.LastName, x.FirstName, x.NationalId })
+                            .FirstOrDefaultAsync();
+
+                        var errMsg = "Lipsesc câmpuri obligatorii: " + string.Join(", ", missing);
+                        Debug.WriteLine($"[REGES INVALID] personId={personId} | name={pmeta?.LastName} {pmeta?.FirstName} | cnp={pmeta?.NationalId} | {errMsg}");
+
+                        // mesaj de warning imediat
+                        MessageBox.Show(errMsg, "Date lipsă", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+                        // adaug și în lista de erori pentru sumarul final
+                        failures.Add((
+                            personId,
+                            $"{pmeta?.LastName} {pmeta?.FirstName}",
+                            pmeta?.NationalId,
+                            errMsg
+                        ));
+
+                        continue; // ⛔ skip trimiterea pentru această persoană
+                    }
+
                     // 1) Send to API
                     var sync = await SendOneAsync(personId);
 
@@ -834,17 +882,33 @@ namespace api_itm.UserControler.Employee
                             fail++;
                             var errMsg = rec?.ErrorMessage ?? "Unknown error";
                             Debug.WriteLine($"[REGES FAIL] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | error={errMsg}");
+
+                            failures.Add((
+                                personId,
+                                $"{p?.LastName} {p?.FirstName}",
+                                p?.NationalId,
+                                errMsg
+                            ));
                         }
                     }
                     else
                     {
                         fail++;
+
                         var p = await _db.People
                             .Where(x => x.PersonId == personId)
                             .Select(x => new { x.LastName, x.FirstName, x.NationalId })
                             .FirstOrDefaultAsync();
 
-                        Debug.WriteLine($"[REGES FAIL] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | error=Invalid responseId '{sync.responseId}'");
+                        var errMsg = $"Invalid responseId '{sync.responseId}'";
+                        Debug.WriteLine($"[REGES FAIL] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | error={errMsg}");
+
+                        failures.Add((
+                            personId,
+                            $"{p?.LastName} {p?.FirstName}",
+                            p?.NationalId,
+                            errMsg
+                        ));
                     }
                 }
                 catch (Exception ex)
@@ -857,15 +921,74 @@ namespace api_itm.UserControler.Employee
                         .FirstOrDefaultAsync();
 
                     Debug.WriteLine($"[REGES EXCEPTION] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | ex={ex.Message}");
+
+                    failures.Add((
+                        personId,
+                        $"{p?.LastName} {p?.FirstName}",
+                        p?.NationalId,
+                        ex.Message
+                    ));
                     // keep going
                 }
             }
 
-            // final summary in Output window
+            // final summary in Output window AND small toast
             Debug.WriteLine($"[REGES SUMMARY] total={ids.Count} ok={ok} fail={fail}");
             MessageBox.Show($"[REGES SUMMARY] total={ids.Count} ok={ok} fail={fail}");
-            // optional UI summary:
-            // MessageBox.Show($"Trimise: {ids.Count}\nSucces: {ok}\nErori: {fail}", "Rezultat trimitere");
+
+            // if there are failures, show a detailed window with reasons
+            if (failures.Count > 0)
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("DETALII ERORI TRIMITERE REGES");
+                sb.AppendLine(new string('─', 80));
+                foreach (var f in failures)
+                {
+                    sb.AppendLine($"personId={f.personId} | nume={f.name} | CNP={f.cnp}");
+                    sb.AppendLine($"  → eroare: {f.error}");
+                    sb.AppendLine();
+                }
+
+                using (var dlg = new Form
+                {
+                    Text = $"REGES – Fail details ({failures.Count})",
+                    Width = 950,
+                    Height = 550,
+                    StartPosition = FormStartPosition.CenterParent
+                })
+                {
+                    var tb = new TextBox
+                    {
+                        Multiline = true,
+                        ReadOnly = true,
+                        Dock = DockStyle.Fill,
+                        ScrollBars = ScrollBars.Both,
+                        WordWrap = false,
+                        Font = new Font("Consolas", 10f),
+                        Text = sb.ToString()
+                    };
+
+                    var copyBtn = new Button
+                    {
+                        Text = "Copy all",
+                        Dock = DockStyle.Bottom,
+                        Height = 36
+                    };
+                    copyBtn.Click += (s, e) =>
+                    {
+                        try { Clipboard.SetText(tb.Text); } catch { /* ignore */ }
+                    };
+
+                    dlg.Controls.Add(tb);
+                    dlg.Controls.Add(copyBtn);
+                    dlg.ShowDialog(this.FindForm());
+                }
+            }
+
+            // 🔄 reload + UX refresh (păstrat ca înainte)
+            await LoadEmployeesAsync();
+            RenumberRows();
+            UpdateCounts();
         }
 
         private int? GetPersonIdFromRow(DataGridViewRow row)
@@ -1009,10 +1132,50 @@ namespace api_itm.UserControler.Employee
         // ======================= REGES API INTEGRATION ========================
         // =====================================================================
 
+        private async Task<List<string>> ValidateRequiredAsync(int personId)
+        {
+            var q = await (
+                from p in _db.People
+                where p.PersonId == personId
+                from c in _db.Countries.Where(x => x.CountryId == p.DomicileCountryId).DefaultIfEmpty()
+                from a in _db.IdentityDocumentTypes.Where(x => x.IdentityDocumentTypeId == p.IdentityDocTypeId).DefaultIfEmpty()
+                select new
+                {
+                    p.Address,
+                    p.SirutaCode,
+                    p.NationalId,
+                    p.LastName,
+                    p.FirstName,
+                    TaraDomiciliu = c.CountryName,         // în payload folosești numele țării
+                    TipActCode = a.IdentityDocumentCode     // în payload folosești codul actului
+                }
+            ).AsNoTracking().FirstOrDefaultAsync();
+
+            var errs = new List<string>();
+            if (q == null)
+            {
+                errs.Add("persoana nu există");
+                return errs;
+            }
+
+            if (string.IsNullOrWhiteSpace(q.Address)) errs.Add("adresa");
+            if (!q.SirutaCode.HasValue || q.SirutaCode.Value == 0) errs.Add("localitate.codSiruta");
+            if (string.IsNullOrWhiteSpace(q.NationalId)) errs.Add("cnp");
+            if (string.IsNullOrWhiteSpace(q.LastName)) errs.Add("nume");
+            if (string.IsNullOrWhiteSpace(q.FirstName)) errs.Add("prenume");
+            if (string.IsNullOrWhiteSpace(q.TaraDomiciliu)) errs.Add("tara domiciliu");
+            if (string.IsNullOrWhiteSpace(q.TipActCode)) errs.Add("tip act identitate");
+
+            return errs;
+        }
+
+
+
         // Step 0: Build payload from DB (uses exactly your mapper + names, no defaults)
-        private async Task<EmployeeView> BuildPayloadForPerson(int personId)
+        public async Task<EmployeeView> BuildPayloadForPerson(int personId)
         {
             var p = await _db.People.FirstOrDefaultAsync(x => x.PersonId == personId);
+
             if (p == null)
                 throw new InvalidOperationException($"Person {personId} not found.");
 
@@ -1027,6 +1190,13 @@ namespace api_itm.UserControler.Employee
                     .Where(n => n.NationalityTypeId == p.NationalityTypeId)
                     .Select(n => n.NationalityTypeName)
                     .FirstOrDefaultAsync()));
+
+            // Lookups
+            var nationalitateID = await _db.People
+    .Where(x => x.PersonId == personId)
+    .Select(x => x.NationalityTypeId)
+    .FirstOrDefaultAsync();
+
 
             var taraDomiciliuName = RegesJson.FixText(await SafeLookup(() =>
                 _db.Countries
@@ -1062,9 +1232,9 @@ namespace api_itm.UserControler.Employee
                     .FirstOrDefaultAsync());
 
             var gradInvaliditateCodeRaw = await SafeLookup(() =>
-                _db.DisabilityGrades
-                    .Where(g => g.DisabilityGradeId == p.InvalidityGradeId)
-                    .Select(g => g.DisabilityGradeCode)
+                _db.DisabilityInvalidityGrade
+                    .Where(gi => gi.InvalidityGradeId == p.InvalidityGradeId)
+                    .Select(gi => gi.InvalidityGradeCode)
                     .FirstOrDefaultAsync());
 
             var typeWorkPermit = await SafeLookup(() =>
@@ -1078,7 +1248,16 @@ namespace api_itm.UserControler.Employee
             if (p.InvalidityGradeId.HasValue)
                 gradInvaliditateCodeRaw = $"Grad{p.InvalidityGradeId.Value}";
 
-            var includeHandicap = p.HandicapTypeId >= 1 && p.HandicapTypeId <= 10;
+            //var includeHandicap = p.HandicapTypeId >= 1 && p.HandicapTypeId <= 10;
+            // helper: normalize empty strings to null so they are omitted from JSON
+            static string? Nz(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+            // … inside BuildPayloadForPerson, after you computed the lookups:
+            var tipHandicapVal = Nz(tipHandicapCodeRaw);
+            var gradHandicapVal = Nz(gradHandicapCodeRaw);
+            var gradInvaliditateVal = (p.InvalidityGradeId.HasValue && p.InvalidityGradeId.Value > 0)
+                                        ? $"Grad{p.InvalidityGradeId.Value}"
+                                        : null;
 
             var info = new EmployeeInformation
             {
@@ -1087,20 +1266,27 @@ namespace api_itm.UserControler.Employee
                 Cnp = p.NationalId ?? "",
                 Nume = p.LastName ?? "",
                 Prenume = p.FirstName ?? "",
-                DataNastere = p.BirthDate ?? DateTime.MinValue,
+                DataNastere = p.BirthDate ?? DateTime.MinValue, // min ocr 0
 
-                Nationalitate = new NamedEntity { Nume = nationalitateName ?? "" },
-                TaraDomiciliu = new NamedEntity { Nume = taraDomiciliuName ?? "" },
+                Nationalitate = new NamedEntity { Nume = nationalitateName ?? "" }, //min ocr 0
+                TaraDomiciliu = new NamedEntity { Nume = taraDomiciliuName ?? "" }, // min ocr 1
                 TipActIdentitate = tipActCodeRaw ?? "",
 
                 //apatrid - nu se adauga 
+  // send ONLY if present (nulls are omitted by your serializer)
+    TipHandicap                         = tipHandicapVal,                  // null if "", omitted
+    GradHandicap                        = gradHandicapVal,                 // null if "", omitted
+    DataCertificatHandicap              = p.HandicapCertificateDate,       // null => omitted
+    NumarCertificatHandicap             = Nz(p.HandicapCertificateNumber), // null if "", omitted
+    DataValabilitateCertificatHandicap  = p.DisabilityReviewDate,          // null => omitted
+    GradInvaliditate                    = Nz(gradInvaliditateVal),         // null => omitted
 
-                TipHandicap = includeHandicap ? (tipHandicapCodeRaw ?? "") : null,
-                GradHandicap = includeHandicap ? (gradHandicapCodeRaw ?? "") : null,
-                DataCertificatHandicap = includeHandicap ? p.HandicapCertificateDate : null,
-                NumarCertificatHandicap = includeHandicap ? (p.HandicapCertificateNumber ?? "") : null,
-                DataValabilitateCertificatHandicap = includeHandicap ? p.DisabilityReviewDate : null,
-                GradInvaliditate = includeHandicap ? (gradInvaliditateCodeRaw ?? "") : null,
+                //TipHandicap = includeHandicap ? (tipHandicapCodeRaw ?? "") : null,
+                //GradHandicap = includeHandicap ? (gradHandicapCodeRaw ?? "") : null,
+                //DataCertificatHandicap = includeHandicap ? p.HandicapCertificateDate : null,
+                //NumarCertificatHandicap = includeHandicap ? (p.HandicapCertificateNumber ?? "") : null,
+                //DataValabilitateCertificatHandicap = includeHandicap ? p.DisabilityReviewDate : null,
+                //GradInvaliditate = includeHandicap ? (gradInvaliditateCodeRaw ?? "") : null,
 
                 Mentiuni = "",
                 MotivRadiere = ""
@@ -1108,11 +1294,7 @@ namespace api_itm.UserControler.Employee
 
             Debug.WriteLine("p.IdentityDocTypeId:" + p.IdentityDocTypeId);
             // Add DetaliiSalariatStrain if using passport
-            if (p.IdentityDocTypeId != 0 &&
-                p.IdentityDocTypeId != 1 &&
-                p.IdentityDocTypeId != 2 &&
-                p.IdentityDocTypeId != 7 &&
-                p.IdentityDocTypeId != 9)
+            if (nationalitateID != 1) // only foreigners, not Romanians
             {
                 var tipAutorizatieRaw = await SafeLookup(() =>
                     _db.WorkPermitTypes
@@ -1136,11 +1318,16 @@ namespace api_itm.UserControler.Employee
                 {
                     DataInceputAutorizatie = p.WorkPermitStartDate,
                     DataSfarsitAutorizatie = p.WorkPermitEndDate,
-                    TipAutorizatie = tipAutorizatieRaw,
-                    TipAutorizatieExceptie = typeWorkPermit,
-                    NumarAutorizatie = numarAutorizatieRaw
+                    TipAutorizatie = string.IsNullOrWhiteSpace(tipAutorizatieRaw) ? null : tipAutorizatieRaw,
+                    TipAutorizatieExceptie = string.IsNullOrWhiteSpace(typeWorkPermit) ? null : typeWorkPermit,
+                    NumarAutorizatie = string.IsNullOrWhiteSpace(numarAutorizatieRaw) ? null : numarAutorizatieRaw
                 };
             }
+            else
+            {
+                info.DetaliiSalariatStrain = null;
+            }
+
 
             // Build full payload
             var payload = new EmployeeView
@@ -1667,6 +1854,106 @@ namespace api_itm.UserControler.Employee
 
 
     }
+
+    public sealed class JsonEmployeeGridRow
+    {
+        // DEBUG + key (kept exactly as your grid expects)
+        public int personId { get; set; }
+
+        // === From payload root ===
+        public string type { get; set; }
+
+        // === Header ===
+        public string header_messageId { get; set; }
+        public string header_clientApplication { get; set; }
+        public string header_version { get; set; }
+        public string header_operation { get; set; }
+        public string header_user { get; set; }
+        public string header_authorId { get; set; }
+        public string header_sessionId { get; set; }
+        public DateTime? header_timestamp { get; set; }
+
+        // === Info (flat, matches JSON names) ===
+        public int? info_localitate_codSiruta { get; set; }
+        public string info_adresa { get; set; }
+        public string info_cnp { get; set; }
+        public string info_nume { get; set; }
+        public string info_prenume { get; set; }
+        public DateTime? info_dataNastere { get; set; }
+
+        // NamedEntity → show .nume
+        public string info_nationalitate_nume { get; set; }
+        public string info_taraDomiciliu_nume { get; set; }
+
+        public string info_tipActIdentitate { get; set; }
+
+        // Handicap block
+        public string info_tipHandicap { get; set; }
+        public string info_gradHandicap { get; set; }
+        public DateTime? info_dataCertificatHandicap { get; set; }
+        public string info_numarCertificatHandicap { get; set; }
+        public DateTime? info_dataValabilitateCertificatHandicap { get; set; }
+        public string info_gradInvaliditate { get; set; }
+
+        public string info_mentiuni { get; set; }
+        public string info_motivRadiere { get; set; }
+
+        // detaliiSalariatStrain
+        public DateTime? info_detaliiSalariatStrain_dataInceputAutorizatie { get; set; }
+        public DateTime? info_detaliiSalariatStrain_dataSfarsitAutorizatie { get; set; }
+        public string info_detaliiSalariatStrain_tipAutorizatie { get; set; }
+        public string info_detaliiSalariatStrain_tipAutorizatieExceptie { get; set; }
+        public string info_detaliiSalariatStrain_numarAutorizatie { get; set; }
+
+        public static JsonEmployeeGridRow FromPayload(EmployeeView p, int personId)
+        {
+            var i = p?.Info;
+            return new JsonEmployeeGridRow
+            {
+                personId = personId,
+
+                type = p?.Type,
+
+                header_messageId = p?.Header?.MessageId,
+                header_clientApplication = p?.Header?.ClientApplication,
+                header_version = p?.Header?.Version,
+                header_operation = p?.Header?.Operation,
+                header_user = p?.Header?.User,
+                header_authorId = p?.Header?.AuthorId,
+                header_sessionId = p?.Header?.SessionId,
+                header_timestamp = p?.Header?.Timestamp,
+
+                info_localitate_codSiruta = i?.Localitate?.CodSiruta,
+                info_adresa = i?.Adresa,
+                info_cnp = i?.Cnp,
+                info_nume = i?.Nume,
+                info_prenume = i?.Prenume,
+                info_dataNastere = i?.DataNastere,
+
+                info_nationalitate_nume = i?.Nationalitate?.Nume,
+                info_taraDomiciliu_nume = i?.TaraDomiciliu?.Nume,
+
+                info_tipActIdentitate = i?.TipActIdentitate,
+
+                info_tipHandicap = i?.TipHandicap,
+                info_gradHandicap = i?.GradHandicap,
+                info_dataCertificatHandicap = i?.DataCertificatHandicap,
+                info_numarCertificatHandicap = i?.NumarCertificatHandicap,
+                info_dataValabilitateCertificatHandicap = i?.DataValabilitateCertificatHandicap,
+                info_gradInvaliditate = i?.GradInvaliditate,
+
+                info_mentiuni = i?.Mentiuni,
+                info_motivRadiere = i?.MotivRadiere,
+
+                info_detaliiSalariatStrain_dataInceputAutorizatie = i?.DetaliiSalariatStrain?.DataInceputAutorizatie,
+                info_detaliiSalariatStrain_dataSfarsitAutorizatie = i?.DetaliiSalariatStrain?.DataSfarsitAutorizatie,
+                info_detaliiSalariatStrain_tipAutorizatie = i?.DetaliiSalariatStrain?.TipAutorizatie,
+                info_detaliiSalariatStrain_tipAutorizatieExceptie = i?.DetaliiSalariatStrain?.TipAutorizatieExceptie,
+                info_detaliiSalariatStrain_numarAutorizatie = i?.DetaliiSalariatStrain?.NumarAutorizatie
+            };
+        }
+    }
+
 
     // ==================== DTOs to match REGES docs (minimal) ====================
     // Sync response after POST /api/salariat/inregistrare

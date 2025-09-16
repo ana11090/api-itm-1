@@ -36,7 +36,7 @@
             // dgvViewSalariati
             // 
             dgvViewSalariati.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dgvViewSalariati.Location = new Point(40, 78);
+            dgvViewSalariati.Location = new Point(40, 82);
             dgvViewSalariati.Name = "dgvViewSalariati";
             dgvViewSalariati.RowHeadersWidth = 51;
             dgvViewSalariati.Size = new Size(804, 303);

@@ -1,5 +1,6 @@
 ﻿using api_itm.UserControler.SideBar;
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -7,86 +8,66 @@ using System.Windows.Forms;
 namespace api_itm.UserControler
 {
     /// <summary>
-    /// A custom sidebar menu control built on top of a styled TreeView.
-    /// Supports sections, items, click events, and zooming with Ctrl+MouseWheel.
+    /// Sidebar menu on top of a styled TreeView.
+    /// - Keeps your 2-level API (sections → items) and ItemClicked(section,item)
+    /// - Adds hierarchical API for 3+ levels + ItemClickedPath(string[] fullPath)
+    /// - Ctrl+MouseWheel zoom preserved
     /// </summary>
     public partial class ControlSidebarMenu : UserControl
     {
-        // The main menu UI element — a custom-styled TreeView
+        // Main UI element
         private readonly StyledTreeView _tree = new StyledTreeView();
 
-        // Current zoom level percentage (default 100%)
+        // Zoom percent
         private int _zoom = 100;
 
-        /// <summary>
-        /// Event raised when a menu item (not a section) is clicked.
-        /// Passes the section and item text as a tuple.
-        /// </summary>
+        /// <summary>Legacy event (still supported): fires for 2-level menus.</summary>
         public event EventHandler<(string section, string item)> ItemClicked;
 
-        /// <summary>
-        /// Gets or sets the image list used for tree nodes.
-        /// </summary>
+        /// <summary>New event: fires for ANY depth, sends full path from root to leaf.</summary>
+        public event EventHandler<string[]> ItemClickedPath;
+
         public ImageList MenuImageList
         {
             get => _tree.ImageList;
             set => _tree.ImageList = value;
         }
 
-        /// <summary>
-        /// Gets or sets the accent color for the menu.
-        /// </summary>
         public Color AccentColor
         {
             get => _tree.AccentColor;
-            set
-            {
-                _tree.AccentColor = value;
-                _tree.Invalidate(); // Redraw to apply the new color
-            }
+            set { _tree.AccentColor = value; _tree.Invalidate(); }
         }
 
-        /// <summary>
-        /// Constructor — sets up the menu appearance, layout, and events.
-        /// </summary>
         public ControlSidebarMenu()
         {
             InitializeComponent();
 
-            // Make the hosting area obvious (optional, for debugging)
-            this.BackColor = Color.White;
+            BackColor = Color.White;
 
-            // BASIC, VISIBLE SETTINGS (standard TreeView drawing)
+            // Basic look
             _tree.BackColor = Color.White;
             _tree.ForeColor = Color.Black;
-            _tree.HideSelection = false;             // keep selection visible when focus changes
-            _tree.FullRowSelect = true;              // highlight full width
+            _tree.HideSelection = false;
+            _tree.FullRowSelect = true;
             _tree.BorderStyle = BorderStyle.None;
 
-            // Use NORMAL drawing to guarantee visibility first
-            _tree.DrawMode = TreeViewDrawMode.Normal;  // <-- critical for now
+            // Keep standard drawing for clarity
+            _tree.DrawMode = TreeViewDrawMode.Normal;
             _tree.ShowLines = false;
             _tree.ShowRootLines = false;
-            _tree.ShowPlusMinus = true;              // show expand arrows so you can tell sections exist
+            _tree.ShowPlusMinus = false;
 
-            // Size/spacing so nodes are comfortably visible
             _tree.Font = new Font("Segoe UI", 10f, FontStyle.Regular);
             _tree.ItemHeight = Math.Max(28, (int)Math.Ceiling(_tree.Font.Height * 1.6));
 
-            // Layout
             _tree.Dock = DockStyle.Fill;
             Controls.Add(_tree);
 
-            // Click handling
-            _tree.NodeMouseClick += (s, e) =>
-            {
-                if (e.Node.Level == 0)   // section
-                    e.Node.Toggle();     // expand/collapse
-                else
-                    ItemClicked?.Invoke(this, (e.Node.Parent.Text, e.Node.Text));
-            };
+            // SINGLE click handler (replaces the two duplicates)
+            _tree.NodeMouseClick += (s, e) => HandleNodeClick(e.Node);
 
-            // Ctrl + MouseWheel zoom (still works in normal mode)
+            // Ctrl + MouseWheel zoom
             _tree.MouseWheel += (s, e) =>
             {
                 if ((ModifierKeys & Keys.Control) == Keys.Control)
@@ -96,55 +77,23 @@ namespace api_itm.UserControler
                 }
             };
 
-            //main button will open too on clikc
-
-            _tree.NodeMouseClick += (s, e) =>
-            {
-                if (e.Node.Level == 0)
-                {
-                    if (e.Node.Nodes.Count == 0)
-                    {
-                        // Root with no children -> treat as a direct item click
-                        ItemClicked?.Invoke(this, (e.Node.Text, e.Node.Text));
-                    }
-                    else
-                    {
-                        e.Node.Toggle(); // normal expand/collapse for sections that have children
-                    }
-                }
-                else
-                {
-                    // Child item clicked
-                    ItemClicked?.Invoke(this, (e.Node.Parent.Text, e.Node.Text));
-                }
-            };
-
-
-            // Apply initial zoom
             ApplyZoom();
-
-            // TEMP sanity: if you want to verify rendering immediately, uncomment:
-            // _tree.Nodes.Add("Test Section").Nodes.Add("Test Item");
-            // _tree.ExpandAll();
         }
 
-
-        /// <summary>
-        /// Applies the current zoom level to the menu font and row height.
-        /// </summary>
         private void ApplyZoom()
         {
-            float basePt = 10f; // Base font size in points
-            float size = basePt * _zoom / 100f; // Adjust font size based on zoom %
+            float basePt = 10f;
+            float size = basePt * _zoom / 100f;
 
             _tree.Font = new Font("Segoe UI", size, FontStyle.Regular);
             _tree.ItemHeight = Math.Max(28, (int)Math.Ceiling(_tree.Font.Height * 1.8));
-
-            _tree.Invalidate(); // Redraw
+            _tree.Invalidate();
         }
 
+        // -------------------- OLD API (2 LEVELS) – kept as-is --------------------
+
         /// <summary>
-        /// Builds the menu structure from an array of section + items data.
+        /// Build a simple 2-level menu: sections → items.
         /// </summary>
         public void BuildMenu((string section, string[] items)[] data, bool expandAll = false)
         {
@@ -157,35 +106,25 @@ namespace api_itm.UserControler
                 foreach (var it in items ?? Array.Empty<string>())
                     root.Nodes.Add(it);
 
-                // Collapse root node so only main buttons show
-                root.Collapse();
+                if (expandAll) root.Expand();
+                else root.Collapse();
             }
 
-             
-
+            if (expandAll) _tree.ExpandAll();
             _tree.EndUpdate();
         }
 
-        /// <summary>
-        /// Adds a single menu item to an existing section, or creates the section if missing.
-        /// </summary>
+        /// <summary>Add a single item to a section (creates section if missing).</summary>
         public void AddMenuItem(string section, string item)
         {
-            var root = _tree.Nodes.Cast<TreeNode>()
-                                  .FirstOrDefault(n => n.Text == section)
-                       ?? _tree.Nodes.Add(section); // Create section if not found
+            var root = _tree.Nodes.Cast<TreeNode>().FirstOrDefault(n => n.Text == section)
+                       ?? _tree.Nodes.Add(section);
 
-            root.Nodes.Add(item); // Add the item
+            root.Nodes.Add(item);
         }
 
-        /// <summary>
-        /// Clears all menu items.
-        /// </summary>
         public void ClearMenu() => _tree.Nodes.Clear();
 
-        /// <summary>
-        /// Selects a specific item in the menu, optionally triggering the click event.
-        /// </summary>
         public void SelectItem(string section, string item, bool triggerClick = false)
         {
             var root = _tree.Nodes.Cast<TreeNode>().FirstOrDefault(n => n.Text == section);
@@ -193,16 +132,80 @@ namespace api_itm.UserControler
 
             if (child != null)
             {
-                _tree.SelectedNode = child; // Visually select item
-
-                if (triggerClick)
-                    ItemClicked?.Invoke(this, (section, item)); // Trigger event
+                _tree.SelectedNode = child;
+                if (triggerClick) ItemClicked?.Invoke(this, (section, item));
             }
         }
 
-        // Empty event handler for when the control loads
-        private void ControlSidebarMenu_Load(object sender, EventArgs e)
+        // -------------------- NEW API (N LEVELS) --------------------
+
+        public record MenuNode(string Title, MenuNode[] Children = null);
+
+        /// <summary>Helper to declare a group (folder) with children.</summary>
+        public static MenuNode Group(string title, params MenuNode[] children) => new(title, children);
+
+        /// <summary>Helper to declare a leaf (clickable item).</summary>
+        public static MenuNode Leaf(string title) => new(title, null);
+
+        /// <summary>
+        /// Build a hierarchical menu (3+ levels supported).
+        /// </summary>
+        public void BuildMenu(MenuNode[] roots, bool expandAll = false)
         {
+            _tree.BeginUpdate();
+            _tree.Nodes.Clear();
+
+            foreach (var root in roots)
+                _tree.Nodes.Add(Build(root));
+
+            if (expandAll) _tree.ExpandAll();
+            _tree.EndUpdate();
+
+            static TreeNode Build(MenuNode m)
+            {
+                var tn = new TreeNode(m.Title);
+                if (m.Children != null && m.Children.Length > 0)
+                    foreach (var c in m.Children) tn.Nodes.Add(Build(c));
+                return tn;
+            }
         }
+
+        // -------------------- Click logic (shared) --------------------
+
+        private void HandleNodeClick(TreeNode node)
+        {
+            if (node == null) return;
+
+            // If it's a group (has children): toggle expand. If it has NO children, treat as leaf.
+            if (node.Nodes.Count > 0)
+            {
+                node.Toggle();
+                return;
+            }
+
+            // Leaf → raise events
+            var path = GetPath(node);
+            ItemClickedPath?.Invoke(this, path);
+
+            // Keep legacy 2-level event alive for your existing code
+            string section = path.Length > 0 ? path[0] : node.Text;
+            string item = path.Length > 1 ? path[^1] : node.Text; // last segment as item
+            ItemClicked?.Invoke(this, (section, item));
+        }
+
+        private static string[] GetPath(TreeNode node)
+        {
+            var stack = new Stack<string>();
+            var cur = node;
+            while (cur != null)
+            {
+                stack.Push(cur.Text);
+                cur = cur.Parent;
+            }
+            return stack.ToArray();
+        }
+
+        // Designer stub
+        private void ControlSidebarMenu_Load(object sender, EventArgs e) { }
     }
 }

@@ -5,6 +5,7 @@ using api_itm.Data.Entity.Ru.Contracts;
 using api_itm.Data.Entity.Ru.Contracts.Work;
 using api_itm.Data.Entity.Ru.Disability;
 using api_itm.Data.Entity.Ru.ForginerWorkAuthorization;
+using api_itm.Data.Entity.Ru.Geography;
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Data.Entity.Ru.Study;
 using api_itm.Models.Contracts.Envelope;
@@ -52,6 +53,13 @@ namespace api_itm
         public DbSet<WorkNormType> WorkNormType => Set<WorkNormType>();//WorkNormType
         public DbSet<County> County => Set<County>();//County
         public DbSet<RegesContractSync> RegesContractSync => Set<RegesContractSync>();//RegesContractSync
+
+        public DbSet<WorkLocationType> WorkLocationType => Set<WorkLocationType>();//WorkLocationType
+
+        public DbSet<RegesCor> RegesCor => Set<RegesCor>();//RegesCor   
+        public DbSet<DisabilityInvalidityGrade> DisabilityInvalidityGrade => Set<DisabilityInvalidityGrade>();//RegesCor   
+
+        public DbSet<RegesSyncModificationEmployee> RegesSyncModificationEmployee => Set<RegesSyncModificationEmployee>();//RegesSyncModificationEmployee
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {

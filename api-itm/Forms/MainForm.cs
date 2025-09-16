@@ -1,6 +1,9 @@
 ﻿using api_itm.Infrastructure; // TabManager
 using api_itm.UserControler;   // ControlSidebarMenu
 using api_itm.UserControler.Contracts;
+using api_itm.UserControler.Contracts.Cessation___Reactivation;
+using api_itm.UserControler.Contracts.Operations;
+using api_itm.UserControler.Contracts.Suspended;
 using api_itm.UserControler.Employee;
 using api_itm.UserControler.UserProfile;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,6 +16,9 @@ namespace api_itm
 {
     public partial class MainForm : Form
     {
+        private readonly ControlerEmployeeView _employeeView;
+        
+
         private readonly AppDbContext _db;
 
         // UI elements
@@ -23,6 +29,8 @@ namespace api_itm
         // Helper for managing tabs
         private TabManager _tabManager;
 
+    
+    
         public MainForm(AppDbContext db)
         {
             InitializeComponent();
@@ -136,11 +144,40 @@ namespace api_itm
                     }
                     switch (item)
                     {
-                        case "Inregistrare contracte":
-                            var inregistrareContracteView = Program.App.Services.GetRequiredService<ControlerAddContractsView>();
-                            inregistrareContracteView.Dock = DockStyle.Fill;
-                            return inregistrareContracteView;
+                        case "Modificare salariat":
+                            var employeeView = Program.App.Services.GetRequiredService<ControlerModifyEmployeeView>();
+                            employeeView.Dock = DockStyle.Fill;
+                            return employeeView;
                     }
+                    switch (item)
+                    {
+                        case "Inregistrare contracte":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerAddContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    switch (item)
+                    {
+                        case "Modificare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerModificationContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    switch (item)
+                    {
+                        case "Suspendare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerSuspendedContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    switch (item)
+                    {
+                        case "Incetare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerTerminationContractsView> ();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+
                     // Fallback placeholder
                     return new Label
                     {
@@ -164,14 +201,32 @@ namespace api_itm
         {
             _menu.BuildMenu(new[]
             {
-                ("Profil utilizator",    null ),
-                ("Salariati",   new[] { "Adaugare date salariati", "HG Agreement", "Employment Agreement", "Supplier Agreements" }),
-                ("Contracte", new[] { "Inregistrare contracte" })
-              //  ("Financial Reports", new[] { "Income Statement", "Balance Sheet", "Profit and Loss", "Cash Flow" }),
-               // ("HR Reports",        new[] { "Employee Performance", "Attendance Record", "Employee Satisfaction" }),
-               // ("Labels",            new[] { "Addresses" })
-            }, expandAll: false);
+        ControlSidebarMenu.Group("Profil utilizator",
+            ControlSidebarMenu.Leaf("Profil utilizator")   // button inside the drop-down
+        ),
+
+        ControlSidebarMenu.Group("Salariati",
+            ControlSidebarMenu.Leaf("Adaugare date salariati"),
+             ControlSidebarMenu.Group("Modificare",
+                ControlSidebarMenu.Leaf("Modificare salariat")
+            )
+        ),
+
+        ControlSidebarMenu.Group("Contracte",
+            ControlSidebarMenu.Leaf("Inregistrare contracte"),
+            ControlSidebarMenu.Group("Operatii contract",
+                ControlSidebarMenu.Leaf("Modificare contract")
+            ),
+            ControlSidebarMenu.Group("Suspendare",
+                ControlSidebarMenu.Leaf("Suspendare contract")
+            ),
+            ControlSidebarMenu.Group("Incetare - Reactivare",
+                ControlSidebarMenu.Leaf("Incetare contract")
+            )
+        )
+    }, expandAll: false);
         }
+
 
         // Optional load event
         private void MainForm_Load(object sender, EventArgs e)

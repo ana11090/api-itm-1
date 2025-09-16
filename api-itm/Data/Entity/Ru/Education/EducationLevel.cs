@@ -11,5 +11,6 @@ namespace api_itm.Data.Entity.Ru.Study
         public int EducationLevelId { get; set; }       // idnivelstudii
         public string? EducationLevelName { get; set; } // denumirenivelstudii
         public string? EducationLevelCode { get; set; } // codnivelstudii
+        public string? EducationLevelCodeReges { get; set; } // codnivelstudii
     }
 }
