@@ -1,5 +1,4 @@
 ﻿using api_itm.Data.Configurations.Salary;
-using api_itm.Data.Entity;
 using api_itm.Data.Entity.Ru.Contracts.Work;
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Infrastructure;
@@ -30,7 +29,8 @@ using System.Windows.Forms;
 using static api_itm.Program;
 using System.Collections; // for IEnumerable
 using System.Net.Http;       // HttpClient
-using System.Threading;      // CancellationToken
+using System.Threading;
+using api_itm.Data.Entity.Ru.Reges;      // CancellationToken
 
 namespace api_itm.UserControler.Contracts
 {
@@ -64,8 +64,6 @@ namespace api_itm.UserControler.Contracts
         private CheckBox _chkDebugValidate;
         private bool _debugValidate = true; // default ON in Debug
 #endif
-
-        
 
         private string WithConsumer(string path)
             => string.IsNullOrWhiteSpace(ConsumerId) ? path : $"{path}?consumerId={Uri.EscapeDataString(ConsumerId)}";
@@ -213,7 +211,7 @@ namespace api_itm.UserControler.Contracts
             // Title on its own line
             lblTitle = new Label
             {
-                Text = "Adaugare contracte",
+                Text = "Contracte suspendate",
                 AutoSize = true,
                 Margin = new Padding(5, 0, 10, 6)
             };
@@ -576,7 +574,7 @@ namespace api_itm.UserControler.Contracts
             }
         }
 
-        // Add this inside ControlerAddContractsView (or a shared utils class)
+ 
         private static Guid? CoerceGuid(object? value)
         {
             if (value is null) return null;
@@ -1759,6 +1757,11 @@ namespace api_itm.UserControler.Contracts
               .Select(cor => cor.Version)  //c.OccupationCode
               .FirstOrDefaultAsync();
 
+            var countyCode = await _db.County
+           .Where(cc => cc.CountyId  == c.CountyID)
+           .Select(cc => cc.CountyCode)  //c.OccupationCode
+           .FirstOrDefaultAsync();
+
             Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
             var salariatRefId = regesEmployeeGuid?.ToString("D") ?? "";
             if (string.IsNullOrWhiteSpace(salariatRefId))
@@ -1769,22 +1772,24 @@ namespace api_itm.UserControler.Contracts
 
             // 3b) SPORURI
             var sporRows = await _db.Set<ContractBonuses>()
-                .AsNoTracking()
-                .Where(b => b.IdContract == c.IdContract)
-                .Join(_db.Set<SporType>().AsNoTracking(),
-                      b => b.IdSpor,
-                      t => t.SporTypeId,
-                      (b, t) => new
-                      {
-                          b.IdContracteSporuri,
-                          b.IdSpor,
-                          b.ValoareSpor,           // amount (RON)
-                          b.ValoareSporProcent,    // percent
-                          t.SporName,
-                          t.SporTypeCode
-                      })
-                .OrderBy(x => x.IdContracteSporuri)
-                .ToListAsync();
+       .AsNoTracking()
+       .Where(b => b.IdContract == c.IdContract)
+       .Join(_db.Set<SporType>().AsNoTracking(),
+             b => b.IdSpor,
+             t => t.SporTypeId,
+             (b, t) => new
+             {
+                 b.IdContracteSporuri,
+                 b.IdSpor,
+                 b.ValoareSpor,
+                 b.ValoareSporProcent,
+                 SporName = t.SporName,
+                 SporTypeCode = t.SporTypeCode, // e.g. TipSporAngajator / TipSporPredefinit
+                 RegesId = t.RegesId       // char(36) GUID or null
+             })
+       .OrderBy(x => x.IdContracteSporuri)
+       .ToListAsync();
+
 
             var sporuri = new List<SporSalariu>();
             foreach (var x in sporRows)
@@ -1803,7 +1808,7 @@ namespace api_itm.UserControler.Contracts
                     Tip = new SporTip
                     {
                         Type = "sporAngajator",
-                        Referinta = new Referinta { Id = referintaId },
+                        Referinta = new Referinta { Id = x.RegesId },
                         Nume = RegesJson.FixText(x.SporName)
                     }
                 });
@@ -1880,10 +1885,10 @@ namespace api_itm.UserControler.Contracts
                 TipContract = typeContractRuCode,
                 TipDurata = typeContractDurationCode,
                 TipNorma = workNormTypeCode,
-                TipLocMunca =  "Mobil", // worktypelocationtype, //hardcode, to !!!
-                JudetLocMunca = "CJ", //do
+                TipLocMunca = worktypelocationtype,  
+                JudetLocMunca = countyCode,  
 
-                AplicaL153 = null,
+                AplicaL153 = null, // to do
 
                 DetaliiL153 = new DetaliiL153 {
                     // AnexaL153 = c.L153AnnexCode,
@@ -1909,7 +1914,7 @@ namespace api_itm.UserControler.Contracts
                     MessageId = Guid.NewGuid().ToString("D"),
                     ClientApplication = "SAP",
                     Version = "5",
-                    Operation = "AdaugareContract",
+                    Operation = "SuspendareContract",
                     AuthorId = Properties.Settings.Default.SavedCredentialsUser,
                     SessionId = _session.SessionId,
                     User = _session.UserName,
@@ -2004,8 +2009,13 @@ namespace api_itm.UserControler.Contracts
             mustValidate = _debugValidate; // DEBUG: controlled by checkbox
 #endif
 
-            if (mustValidate && !GuardRequiredFieldsOrWarn(payload.Continut, idContract))
-                throw new InvalidOperationException("Câmpuri obligatorii lipsă – trimitere blocată.");
+            if (mustValidate)
+            {
+                var (ok, missing) = ValidateRequiredForContract(payload.Continut);
+                if (!ok)
+                    throw new InvalidOperationException(
+                        "Câmpuri obligatorii lipsă: " + string.Join(", ", missing));
+            }
 
 
             // 2) Serialize after validation (unchanged)

@@ -5,7 +5,7 @@ public static class DbIdRagesEmployeesSetup
     public static Task EnsureAsync(DbContext db)
     {
         var sql = @"
--- Ensure schema ru exists (no migration)
+-- Ensure schema ru exists 
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'ru') THEN
@@ -27,15 +27,13 @@ CREATE TABLE IF NOT EXISTS ru.idsreges_salariat (
     created_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
-
--- Indexes on ru table (all no-ops if already exist)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_idsreges_salariat_id_raspuns_mesaj
+CREATE INDEX IF NOT EXISTS ix_idsreges_salariat_id_raspuns_mesaj
   ON ru.idsreges_salariat (id_raspuns_mesaj) WHERE id_raspuns_mesaj IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_idsreges_salariat_id_rezultat_mesaj
+CREATE INDEX IF NOT EXISTS ix_idsreges_salariat_id_rezultat_mesaj
   ON ru.idsreges_salariat (id_rezultat_mesaj) WHERE id_rezultat_mesaj IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_idsreges_salariat_reges_salariat_id
+CREATE INDEX IF NOT EXISTS ix_idsreges_salariat_reges_salariat_id
   ON ru.idsreges_salariat (reges_salariat_id) WHERE reges_salariat_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_idsreges_salariat_status

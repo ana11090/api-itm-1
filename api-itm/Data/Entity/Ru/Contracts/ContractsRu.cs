@@ -350,5 +350,8 @@ namespace api_itm.Data.Entity.Ru.Contracts
         public int? ShiftTypeId { get; set; }
 
         public int? WorkTypeID { get; set; } //idtiplocmunca
+
+        public int? CountyID { get; set; }
+        public int? CityId { get; set; }
     }
 }

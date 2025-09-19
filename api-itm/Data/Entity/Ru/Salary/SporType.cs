@@ -31,5 +31,6 @@ namespace api_itm.Data.Entity.Ru.Salary
 
         /// <summary>DB: codtipspor (string here; switch to int if your schema is numeric)</summary>
         public string? SporTypeCode { get; set; }
+        public string? RegesId { get; set; }
     }
 }

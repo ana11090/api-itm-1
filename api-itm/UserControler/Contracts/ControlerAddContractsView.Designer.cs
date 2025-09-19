@@ -35,10 +35,10 @@
             // dgvAddContracts
             // 
             dgvAddContracts.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dgvAddContracts.Location = new Point(135, 110);
+            dgvAddContracts.Location = new Point(26, 25);
             dgvAddContracts.Name = "dgvAddContracts";
             dgvAddContracts.RowHeadersWidth = 51;
-            dgvAddContracts.Size = new Size(300, 188);
+            dgvAddContracts.Size = new Size(356, 214);
             dgvAddContracts.TabIndex = 0;
             // 
             // ControlerAddContractsView

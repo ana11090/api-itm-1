@@ -1,18 +1,15 @@
-﻿using System.Threading.Tasks;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using System.Threading.Tasks;
 
-namespace api_itm.Infrastructure
+namespace api_itm.Infrastructure.Db
 {
-    /// <summary>
-    /// Creează/actualizează tabela idsreges_contracte pentru tracking REGES (contracte).
-    /// Poți apela în fiecare startup: await DbIdRagesContractsSetup.EnsureAsync(db);
-    /// </summary>
-    public static class DbIdRagesContractsSetup
+    public static class DbIdRagesEmployeesModificationsSetup
     {
         public static Task EnsureAsync(DbContext db)
         {
             var sql = @"
--- Create table
+
+-- Create table ru.idsreges_salariat_modificari (idempotent)
 CREATE TABLE IF NOT EXISTS ru.idsreges_contract (
     id                 INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     idcontract         INTEGER NULL,

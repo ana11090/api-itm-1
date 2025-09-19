@@ -2,7 +2,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace api_itm.Data.Entity.Ru
+namespace api_itm.Data.Entity.Ru.Reges
 {
     [Table("idsreges_salariat_modificari", Schema = "ru")]
     public class RegesSyncModificationEmployee

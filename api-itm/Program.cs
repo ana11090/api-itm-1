@@ -46,13 +46,14 @@ namespace api_itm
                 // === Resolve DbContext
                 var db = sp.GetRequiredService<AppDbContext>();
 
-                // === CALL THE FUNCTION HERE: connectivity probe (sync, no await)
+                // call function services
                 ProbeDb(db);
 
                 // === Ensure tables BEFORE anything queries them (still sync)
                 DbIdRagesEmployeesSetup.EnsureAsync(db).GetAwaiter().GetResult();
                 DbIdRagesContractsSetup.EnsureAsync(db).GetAwaiter().GetResult();
-                DbIdRagesEmployeesModificariSetup.EnsureAsync(db).GetAwaiter().GetResult();
+                DbIdRagesEmployeesModificationsSetup.EnsureAsync(db).GetAwaiter().GetResult();
+                DbIdRagesContractsModificationsSetup.EnsureAsync(db).GetAwaiter().GetResult();
 
                 // Quick visibility check (sync, no await)
                 var cx = db.Database.GetDbConnection();

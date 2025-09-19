@@ -370,7 +370,7 @@ namespace api_itm.UserControler.Employee
 
                   from c in _db.Countries
                      .Where(x => x.CountryId == p.DomicileCountryId)
-                     .DefaultIfEmpty()
+                        .Take(1).DefaultIfEmpty()
 
                 from a in _db.IdentityDocumentTypes
                      .Where(x => x.IdentityDocumentTypeId == p.IdentityDocTypeId)
@@ -428,7 +428,8 @@ namespace api_itm.UserControler.Employee
                     WorkPermitTypeName = wpt.WorkPermitName,
                     p.ApprovalNumber
                 }
-            )
+            ).GroupBy(x => x.PersonId)
+            .Select(g => g.First())
             .AsNoTracking()
             .ToListAsync();
 

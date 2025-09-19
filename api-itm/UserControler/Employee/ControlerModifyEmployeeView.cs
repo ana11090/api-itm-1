@@ -1,4 +1,4 @@
-﻿using api_itm.Data.Entity.Ru;
+﻿using api_itm.Data.Entity.Ru.Reges;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Models.Employee;

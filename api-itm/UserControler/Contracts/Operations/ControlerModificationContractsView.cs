@@ -1,4 +1,4 @@
-﻿using api_itm.Data.Entity;
+﻿using api_itm.Data.Entity.Ru.Reges;
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Sessions;
@@ -563,7 +563,7 @@ namespace api_itm.UserControler.Contracts.Operations
             // Title on its own line
             lblTitle = new Label
             {
-                Text = "Adaugare contracte",
+                Text = "Contracte modificate",
                 AutoSize = true,
                 Margin = new Padding(5, 0, 10, 6)
             };
@@ -724,7 +724,7 @@ namespace api_itm.UserControler.Contracts.Operations
         {
             Debug.WriteLine($"[DB] Save sync receipt for idContract={idContract}, messageId={sync?.header?.messageId}, responseId={sync?.responseId}");
 
-            var rec = new RegesContractSync
+            var rec = new RegesSyncModificationContracts
             {
                 IdContract = idContract,
                 IdUtilizator = int.TryParse(_session.UserId, out var uid) ? uid : (int?)null,
@@ -791,7 +791,7 @@ namespace api_itm.UserControler.Contracts.Operations
                     if (ridGuid.HasValue)
                     {
                         await using var db = await _dbFactory.CreateDbContextAsync();
-                        var rec = await db.Set<RegesContractSync>()
+                        var rec = await db.Set<RegesSyncModificationContracts>()
                             .AsNoTracking()
                             .FirstOrDefaultAsync(x => x.Id_Rezultat_Mesaj.HasValue && x.Id_Rezultat_Mesaj.Value == ridGuid.Value);
 
@@ -1274,7 +1274,7 @@ string authorIdStr)
 
             await using var db = await _dbFactory.CreateDbContextAsync();
 
-            var rec = await db.Set<RegesContractSync>()
+            var rec = await db.Set<RegesSyncModificationContracts>()
                 .FirstOrDefaultAsync(x => x.Id_Rezultat_Mesaj.HasValue && x.Id_Rezultat_Mesaj.Value == rid);
 
             if (rec == null)

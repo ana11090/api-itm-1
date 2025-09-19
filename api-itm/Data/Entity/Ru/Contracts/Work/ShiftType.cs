@@ -19,5 +19,7 @@ namespace api_itm.Data.Entity.Ru.Contracts.Work
         public string ShiftTypeName { get; set; }
         [Column("codtiptura")]
         public string ShiftTypeCode { get; set; }
+
+        
     }
 }

@@ -14,7 +14,10 @@ namespace api_itm.Models.Contracts
         [JsonPropertyName("$type")] public string Type { get; set; } = "contract";
 
         [JsonPropertyName("header")] public Header Header { get; set; } = new();
-        [JsonPropertyName("referintaContract")] public ReferintaContract? ReferintaContract { get; set; } = new();
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("referintaContract")]
+        public ReferintaContract? ReferintaContract { get; set; }
 
         [JsonPropertyName("continut")] public ContinutContract Continut { get; set; } = new();
     }

@@ -25,10 +25,13 @@ namespace api_itm.Data.Configurations.Salary
                    .HasColumnName("codspor");
 
             builder.Property(e => e.SporTypeVersion)
-                   .HasColumnName("versiunetipspor");
+                   .HasColumnName("versiunetipspor"); 
 
             builder.Property(e => e.SporTypeCode)
                    .HasColumnName("codtipspor");
+
+            builder.Property(e => e.RegesId)
+                   .HasColumnName("reges_id"); 
         }
     }
 }

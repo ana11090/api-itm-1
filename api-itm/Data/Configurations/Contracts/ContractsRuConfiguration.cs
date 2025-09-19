@@ -148,6 +148,10 @@ namespace api_itm.Data.Configurations
             builder.Property(c => c.ShiftTypeId).HasColumnName("idtiptura");
 
             builder.Property(c => c.WorkTypeID).HasColumnName("idtiplocmunca"); //WorkTypeID
+
+            builder.Property(c => c.CountyID).HasColumnName("idjudet");
+            builder.Property(c => c.CityId).HasColumnName("idlocalitate");
+
         }
     }
 }

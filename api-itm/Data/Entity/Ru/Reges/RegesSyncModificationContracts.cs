@@ -1,11 +1,15 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace api_itm.Data.Entity
+namespace api_itm.Data.Entity.Ru.Reges
 {
-    [Table("idsreges_contracte")]
-    public class RegesContractSync
+    [Table("idsreges_contracte_modificari", Schema = "ru")]
+    public class RegesSyncModificationContracts
     {
         [Key]
         [Column("id")]
