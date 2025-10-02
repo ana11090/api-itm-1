@@ -52,7 +52,7 @@ namespace api_itm
                 // === Ensure tables BEFORE anything queries them (still sync)
                 DbIdRagesEmployeesSetup.EnsureAsync(db).GetAwaiter().GetResult();
                 DbIdRagesContractsSetup.EnsureAsync(db).GetAwaiter().GetResult();
-                DbIdRagesEmployeesModificationsSetup.EnsureAsync(db).GetAwaiter().GetResult();
+                DbIdRagesEmployeesOperationsSetup.EnsureAsync(db).GetAwaiter().GetResult();
                 DbIdRagesContractsModificationsSetup.EnsureAsync(db).GetAwaiter().GetResult();
 
                 // Quick visibility check (sync, no await)

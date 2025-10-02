@@ -4,12 +4,15 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace api_itm.Data.Entity.Ru.Reges
 {
-    [Table("idsreges_salariat_modificari", Schema = "ru")]
-    public class RegesSyncModificationEmployee
+    [Table("idsreges_salariat_operatii", Schema = "ru")]
+    public class RegesSyncOpenrationsEmployee // old RegesSyncModificationEmployee
     {
         [Key]
         [Column("id")]
         public int Id { get; set; }
+
+        [Column("idoperatie")]
+        public int? OperationId { get; set; } 
 
         [Column("idpersoana")]
         public int? PersonId { get; set; }

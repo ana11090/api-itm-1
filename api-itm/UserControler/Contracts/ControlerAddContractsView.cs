@@ -1,5 +1,6 @@
 ﻿using api_itm.Data.Configurations.Salary;
 using api_itm.Data.Entity.Ru.Contracts.Work;
+using api_itm.Data.Entity.Ru.Reges;      // CancellationToken
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Mappers;
@@ -12,6 +13,7 @@ using api_itm.Models.Reges;
 using api_itm.Models.View;
 using Microsoft.EntityFrameworkCore;
 using System;
+using System.Collections; // for IEnumerable
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -19,18 +21,16 @@ using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Drawing;
 using System.Linq;
+using System.Net.Http;       // HttpClient
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static api_itm.Program;
-using System.Collections; // for IEnumerable
-using System.Net.Http;       // HttpClient
-using System.Threading;
-using api_itm.Data.Entity.Ru.Reges;      // CancellationToken
 
 namespace api_itm.UserControler.Contracts
 {
@@ -211,7 +211,7 @@ namespace api_itm.UserControler.Contracts
             // Title on its own line
             lblTitle = new Label
             {
-                Text = "Contracte suspendate",
+                Text = "Adaugare contracte",
                 AutoSize = true,
                 Margin = new Padding(5, 0, 10, 6)
             };
@@ -455,6 +455,10 @@ namespace api_itm.UserControler.Contracts
                             string.Equals(rec.Status, "Success", StringComparison.OrdinalIgnoreCase) &&
                             rec.RegesContractId.HasValue)
                         {
+                            await db.ContractsRu
+                                    .Where(x => x.IdContract == idContract)
+                                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.RegesSyncVariable, 0));
+
                             ok++;
                             lines.Add(new SendLine
                             {
@@ -1104,10 +1108,11 @@ namespace api_itm.UserControler.Contracts
                 from c in db.ContractsRu.AsNoTracking()
                 join rs in db.Set<RegesSync>().AsNoTracking()
                      on c.PersonId equals rs.PersonId
-                where rs.RegesEmployeeId != null
+                where rs.RegesEmployeeId != null && c.RegesSyncVariable == 1
                 orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
                 select new { C = c, RegesEmployeeId = rs.RegesEmployeeId }
             ).ToListAsync();
+
 
             // contracts that already have a REGES Contract Id (for green/red coloring)
             var greenContractIds = await db.Set<RegesContractSync>()
@@ -1754,13 +1759,39 @@ namespace api_itm.UserControler.Contracts
 
             var versionCor = await _db.RegesCor
               .Where(cor => cor.Code.ToString() == c.OccupationCode)
-              .Select(cor => cor.Version)  //c.OccupationCode
+              .Select(cor => cor.Version)   
               .FirstOrDefaultAsync();
 
             var countyCode = await _db.County
            .Where(cc => cc.CountyId  == c.CountyID)
-           .Select(cc => cc.CountyCode)  //c.OccupationCode
+           .Select(cc => cc.CountyCode)   
            .FirstOrDefaultAsync();
+
+            int? codSiruta = await _db.CountyCity
+          .Where(lo => lo.CountyCityId.ToString() == c.CityId.ToString())
+          .Select(lo => (int?)lo.SirutaCode)
+          .FirstOrDefaultAsync();
+
+            // Returns null if any hop has no match
+            int cityName = await (
+                from cr in _db.ContractsRu.AsNoTracking()
+                where cr.IdContract == idContract
+
+                // CityId join (handle int vs int?)
+                join cc in _db.CountyCity.AsNoTracking()
+                    on (int?)cr.CityId equals (int?)cc.CountyCityId
+
+                // Siruta join (handle int vs int?)
+                join ci in _db.City.AsNoTracking()
+                    on (int?)cc.SirutaCode equals (int?)ci.SirutaCode
+
+                select ci.SirutaCode
+            ).FirstOrDefaultAsync();
+
+
+
+        
+            Debug.WriteLine("cityName" + cityName);
 
             Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
             var salariatRefId = regesEmployeeGuid?.ToString("D") ?? "";
@@ -1868,7 +1899,7 @@ namespace api_itm.UserControler.Contracts
                 // 🔧 Only change: omit when empty to satisfy schema
                 SporuriSalariu = (sporuri.Count > 0) ? sporuri : null,
 
-                StareCurenta = new StareCurenta(),
+                StareCurenta = new StareCurenta(), // to do // se intoarce populata de Reges
 
                 TimpMunca = new TimpMunca
                 {
@@ -1886,8 +1917,10 @@ namespace api_itm.UserControler.Contracts
                 TipDurata = typeContractDurationCode,
                 TipNorma = workNormTypeCode,
                 TipLocMunca = worktypelocationtype,  
-                JudetLocMunca = countyCode,  
-
+                JudetLocMunca = countyCode,
+                LocalitateLocMunca = (worktypelocationtype == "Fix")
+    ? new Localitate { CodSiruta = cityName }   // cityName is your int SIRUTA (e.g., 54984)
+    : null,
                 AplicaL153 = null, // to do
 
                 DetaliiL153 = new DetaliiL153 {
@@ -1914,7 +1947,7 @@ namespace api_itm.UserControler.Contracts
                     MessageId = Guid.NewGuid().ToString("D"),
                     ClientApplication = "SAP",
                     Version = "5",
-                    Operation = "SuspendareContract",
+                    Operation = "AdaugareContract",
                     AuthorId = Properties.Settings.Default.SavedCredentialsUser,
                     SessionId = _session.SessionId,
                     User = _session.UserName,

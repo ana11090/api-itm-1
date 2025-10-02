@@ -1,6 +1,6 @@
 ﻿namespace api_itm.UserControler.Employee
 {
-    partial class ControlerEmployeeView
+    partial class ControlerAddEmployeeView
     {
         /// <summary> 
         /// Required designer variable.

@@ -56,12 +56,20 @@ namespace api_itm.Infrastructure
             services.AddScoped<MainForm>();
 
             // --- UserControls (transient is usually best)
-            services.AddTransient<ControlerEmployeeView>();
+            services.AddTransient<ControlerAddEmployeeView>();
             services.AddTransient<ControlerModifyEmployeeView>();
+            services.AddTransient<ControlerCorrectionEmployeeView>();//ControlerCorrectionEmployeeView
             services.AddTransient<ControlerAddContractsView>();
             services.AddTransient<ControlerModificationContractsView>();
-            services.AddTransient<ControlerSuspendedContractsView>();
             services.AddTransient<ControlerTerminationContractsView>();
+                //Suspendari Contracte
+            services.AddTransient<ControlerSuspendedContractsView>();
+            services.AddTransient<ControlerCorrectionSuspendedContractsView>();
+            services.AddTransient<ControlerModificationSuspendedContractsView>();
+            services.AddTransient<ControlerCancelSuspendedContractsView>(); 
+            services.AddTransient<ControlerStopedSuspendedContractsView>();
+            services.AddTransient<ControlerCorrectionStopedSuspendedContractsView>();
+
 
             return services;
         }

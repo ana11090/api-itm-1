@@ -1,10 +1,12 @@
-﻿using api_itm.Data.Entity.Ru.Reges;
+﻿using api_itm.Data.Entity.Ru.Contracts.ContractsSuspended;
+using api_itm.Data.Entity.Ru.Reges;
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Sessions;
 using api_itm.Models;
 using api_itm.Models.Contracts;
 using api_itm.Models.Contracts.Envelope;
+using api_itm.Models.Contracts.SuspendariEnvelope;
 using api_itm.Models.Reges;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -144,7 +146,7 @@ namespace api_itm.UserControler.Contracts.Suspended
             // Title on its own line
             lblTitle = new Label
             {
-                Text = "Adaugare contracte",
+                Text = "Suspendare contracte",
                 AutoSize = true,
                 Margin = new Padding(5, 0, 10, 6)
             };
@@ -203,7 +205,7 @@ namespace api_itm.UserControler.Contracts.Suspended
 
             _btnSendSelected = new Button
             {
-                Text = "Trimitere contracte",
+                Text = "Trimitere contracte suspendate",
                 AutoSize = true,
                 Margin = new Padding(8)
             };
@@ -232,7 +234,7 @@ namespace api_itm.UserControler.Contracts.Suspended
                 EnsureSpecialColumns();
                 RenumberRows();
                 UpdateCounts();
-                ApplyRowColorsByRegesId();
+                //ApplyRowColorsByRegesId();
             };
 
             // // search
@@ -350,9 +352,7 @@ namespace api_itm.UserControler.Contracts.Suspended
             mustValidate = _debugValidate; // DEBUG: controlled by checkbox
 #endif
 
-            if (mustValidate && !GuardRequiredFieldsOrWarn(payload.Continut, idContract))
-                throw new InvalidOperationException("Câmpuri obligatorii lipsă – trimitere blocată.");
-
+          
 
             // 2) Serialize after validation (unchanged)
             var json = RegesJson.SanitizeAndSerialize(payload);
@@ -660,6 +660,9 @@ namespace api_itm.UserControler.Contracts.Suspended
                             string.Equals(rec.Status, "Success", StringComparison.OrdinalIgnoreCase) &&
                             rec.RegesContractId.HasValue)
                         {
+                            await db.ContractsRu
+                                   .Where(x => x.IdContract == idContract)
+                                   .ExecuteUpdateAsync(s => s.SetProperty(p => p.RegesSyncVariable, 0));
                             ok++;
                             lines.Add(new SendLine
                             {
@@ -702,7 +705,7 @@ namespace api_itm.UserControler.Contracts.Suspended
             await LoadContractsAsync();
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+           // ApplyRowColorsByRegesId();
 
         }
         // Build and show a detailed summary. Falls back to a scrollable dialog if long.
@@ -817,7 +820,7 @@ namespace api_itm.UserControler.Contracts.Suspended
 
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+            //ApplyRowColorsByRegesId();
 
             foreach (DataGridViewColumn c in dgvContracteSuspendate.Columns)
                 c.HeaderCell.SortGlyphDirection = SortOrder.None;
@@ -868,19 +871,28 @@ namespace api_itm.UserControler.Contracts.Suspended
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
 
-            var baseRows = await (
-                from c in db.ContractsRu.AsNoTracking()
-                join rs in db.Set<RegesSync>().AsNoTracking()
-                    on c.PersonId equals rs.PersonId
-                join cc0 in db.Set<RegesContractSync>().AsNoTracking()
-                    on c.IdContract equals cc0.IdContract into ccg
-                from cc in ccg.DefaultIfEmpty()                         // LEFT JOIN
-                where rs.RegesEmployeeId != null
-                      && cc != null && cc.RegesContractId != null       // <-- was cc.Rege
-                      && c.ContractStatusId == 2                        // 2 = contracte suspendate
-                orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
-                select new { C = c, RegesEmployeeId = rs.RegesEmployeeId }
-            ).ToListAsync();
+            var baseQuery =
+      from c in db.ContractsRu.AsNoTracking()
+      join rs in db.Set<RegesSync>().AsNoTracking()
+          on c.PersonId equals rs.PersonId
+      join cc in db.Set<RegesContractSync>().AsNoTracking()
+          on c.IdContract equals cc.IdContract
+    join cs in db.Set<ContractRuSuspended>().AsNoTracking()
+        on c.IdContract equals cs.ContractId  
+      where rs.RegesEmployeeId != null
+            && cc.RegesContractId != null
+            && c.ContractStatusId == 2
+            && cc.IdContract == cs.ContractId
+           // && c.RegesSyncVariable == 
+      orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
+      select new { C = c, RegesEmployeeId = rs.RegesEmployeeId, RegesContractId = cc.RegesContractId };
+
+            //  See generated SQL (params shown as comments)
+            System.Diagnostics.Debug.WriteLine("=== SQL for baseQuery ===");
+            System.Diagnostics.Debug.WriteLine(baseQuery.ToQueryString());
+
+            // Execute
+            var baseRows = await baseQuery.ToListAsync();
 
             // contracts that already have a REGES Contract Id (for green/red coloring)
             var greenContractIds = await db.Set<RegesContractSync>()
@@ -1023,7 +1035,7 @@ namespace api_itm.UserControler.Contracts.Suspended
             _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+            //ApplyRowColorsByRegesId();
         }
 
         /// <summary>
@@ -1057,7 +1069,7 @@ namespace api_itm.UserControler.Contracts.Suspended
                 EnsureSpecialColumns();
                 RenumberRows();
                 UpdateCounts();
-                ApplyRowColorsByRegesId();
+                //ApplyRowColorsByRegesId();
             };
 
             dgvContracteSuspendate.Sorted += (_, __) => RenumberRows();
@@ -1128,7 +1140,7 @@ namespace api_itm.UserControler.Contracts.Suspended
             // păstrăm UX-ul existent
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+            //ApplyRowColorsByRegesId();
         }
 
         private int? GetIdContractFromRow(DataGridViewRow row)
@@ -1275,14 +1287,14 @@ namespace api_itm.UserControler.Contracts.Suspended
 
 
         // Step 0: Build payload from DB (uses exactly your mapper + names, no defaults)
-        public async Task<ContractEnvelope> BuildContractPayloadAsync(int idContract)
+        public async Task<ContractSuspendariEnvelope> BuildContractPayloadAsync(int idContract)
         {
             await using var _db = await _dbFactory.CreateDbContextAsync();
 
             // 1) Contract
-            var c = await _db.ContractsRu
+            var c = await _db.ContractRuSuspended
                 .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.IdContract == idContract);
+                .FirstOrDefaultAsync(x => x.ContractId == idContract);
             if (c == null)
                 throw new InvalidOperationException($"Contract {idContract} not found.");
 
@@ -1293,259 +1305,95 @@ namespace api_itm.UserControler.Contracts.Suspended
             }
 
             // 3) Lookups
-            var endDateExceptionCode = RegesJson.FixText(await SafeLookup(() =>
-                _db.EndDateExceptions
-                  .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
-                  .Select(e => e.EndDateExceptionCode)
-                  .FirstOrDefaultAsync()));
 
-            Debug.WriteLine($"[DEBUG] Contract {c.IdContract} | EndDateExceptionId={c.EndDateExceptionId} => Code='{endDateExceptionCode}'");
-
-            var isState7 = await _db.ContractsState
-                .Where(s => s.ContractStateId == c.ContractStatusId)
-                .Select(s => s.ContractStateId == 7)
+            int? personId = await _db.ContractsRu
+                .AsNoTracking()
+                .Where(cr => cr.IdContract == idContract)
+                .Select(cr => (int?)cr.PersonId)
                 .FirstOrDefaultAsync();
 
-            var educationLevelCode = await _db.FunctionsStat
-                .Where(f => f.FunctionStatId == c.FunctionStatId)
-                .Join(_db.EducationLevels, f => f.EducationLevelId, e => e.EducationLevelId,
-                      (f, e) => e.EducationLevelCodeReges)
-                .FirstOrDefaultAsync();
-
-            var workingscheduleCode = await _db.WorkScheduleNorm
-               .Where(w => w.WorkScheduleId == c.NormId)
-               .Select(w => w.WorkScheduleCode)
-               .FirstOrDefaultAsync();
-
-            var workingTimeIntervalCode = await _db.WorkingTimeIntervals
-               .Where(wt => wt.WorkingTimeIntervalId == c.WorkTimeIntervalId)
-               .Select(wt => wt.WorkingTimeIntervalCode)
-               .FirstOrDefaultAsync();
-
-            var repartizareMunca = await _db.WorkDistributionId
-               .Where(wd => wd.WorkDistributionIdId == c.WorkDistributionId)
-               .Select(wd => wd.WorkDistributionIdCode)
-               .FirstOrDefaultAsync(); //WorkDistributionIds
-
-            Debug.WriteLine("repartizareMunca: " + repartizareMunca);
-
-            var repartizare = await _db.WorkTimeAllocation
-              .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
-              .Select(wta => wta.WorkTimeAllocationCode)
-              .FirstOrDefaultAsync(); //ShiftType
-
-            Debug.WriteLine("repartizare:" + repartizare);
-
-            var typeContractRuCode = await _db.TypeContractRu
-             .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
-             .Select(tyr => tyr.TypeContractRuCode)
-             .FirstOrDefaultAsync();//TypeContractRu
-
-            var typeContractDurationCode = await ResolveContractTypeDurationCodeAsync(_db, c.DurationTypeId);
 
 
-            Debug.WriteLine("typeContractDurationCode" + typeContractDurationCode);
+            if (personId is null)
+                throw new InvalidOperationException($"No PersonId for contract {idContract}.");
 
 
-            var shiftTypeCode = await _db.ShiftType
-             .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
-             .Select(shift => shift.ShiftTypeCode)
-             .FirstOrDefaultAsync(); //ShiftType
-
-            Debug.WriteLine("shiftTypeCode" + shiftTypeCode);
-
-            var workNormTypeCode = await _db.WorkNormType
-                  .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
-                  .Select(n => n.WorkNormTypeCode)
-                  .FirstOrDefaultAsync();
-
-            Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
-
-            // Find REGES employee id for this contract's person
             var regesEmployeeGuid = await _db.Set<RegesSync>()
-                .AsNoTracking()
-                .Where(rs => rs.PersonId == c.PersonId && rs.RegesEmployeeId != null)
-                .OrderByDescending(rs => rs.UpdatedAt)
-                .Select(rs => rs.RegesEmployeeId)
-                .FirstOrDefaultAsync();
-
-            var Code = await _db.WorkNormType
-               .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
-               .Select(n => n.WorkNormTypeCode)
-               .FirstOrDefaultAsync();
-
-            var worktypelocationtype = await _db.WorkLocationType
-              .Where(wlt => wlt.WorkLocationTypeId == c.WorkTypeID)
-              .Select(wlt => wlt.WorkLocationTypeCode)
+              .AsNoTracking()
+              .Where(rs => rs.PersonId == personId.Value && rs.RegesEmployeeId != null)
+              .OrderByDescending(rs => rs.UpdatedAt)
+              .Select(rs => rs.RegesEmployeeId)
               .FirstOrDefaultAsync();
 
-            var versionCor = await _db.RegesCor
-              .Where(cor => cor.Code.ToString() == c.OccupationCode)
-              .Select(cor => cor.Version)  //c.OccupationCode
-              .FirstOrDefaultAsync();
+            //regesContractsGuid
+            var regesContractsGuid = await _db.Set<RegesContractSync>()
+            .AsNoTracking()
+            .Where(rss => rss.IdContract == c.ContractId && rss.RegesContractId != null)
+            .OrderByDescending(rs => rs.Updated_At)
+            .Select(rs => rs.RegesContractId)
+            .FirstOrDefaultAsync();
 
-            Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
-            var salariatRefId = regesEmployeeGuid?.ToString("D") ?? "";
-            if (string.IsNullOrWhiteSpace(salariatRefId))
-                throw new InvalidOperationException($"No REGES employee Id for person {c.PersonId}; cannot build contract.");
+            var suspensionStart = c.SuspensionStartDate
+     ?? await _db.ContractRuSuspended
+          .AsNoTracking()
+          .Where(x => x.ContractId == idContract && x.SuspensionStartDate != null)
+          .OrderByDescending(x => x.SuspensionStartDate)
+          .Select(x => x.SuspensionStartDate)
+          .FirstOrDefaultAsync()
+           
+     ?? throw new InvalidOperationException($"No SuspensionStartDate for contract {idContract}.");
 
-            Debug.WriteLine($"[DEBUG] Contract {c.IdContract} | FunctionStatId={c.FunctionStatId} => EducationLevelCode='{educationLevelCode}'");
+
+            var suspensionEnd = c.SuspensionEndDate
+                ?? await _db.ContractRuSuspended
+                     .AsNoTracking()
+                     .Where(x => x.ContractId == idContract && x.SuspensionEndDate != null)
+                     .OrderByDescending(x => x.SuspensionEndDate)
+                     .Select(x => x.SuspensionEndDate)
+                     .FirstOrDefaultAsync();
+
+            string legalGroundCode = await _db.Set<SuspensionLegalGround>()
+    .Where(g => g.SuspensionLegalGroundId == c.SuspensionLegalGroundId)
+    .Select(g => g.SuspensionLegalGroundCode)
 
 
-            // 3b) SPORURI
-            var sporRows = await _db.Set<ContractBonuses>()
-                .AsNoTracking()
-                .Where(b => b.IdContract == c.IdContract)
-                .Join(_db.Set<SporType>().AsNoTracking(),
-                      b => b.IdSpor,
-                      t => t.SporTypeId,
-                      (b, t) => new
-                      {
-                          b.IdContracteSporuri,
-                          b.IdSpor,
-                          b.ValoareSpor,           // amount (RON)
-                          b.ValoareSporProcent,    // percent
-                          t.SporName,
-                          t.SporTypeCode
-                      })
-                .OrderBy(x => x.IdContracteSporuri)
-                .ToListAsync();
+    .FirstOrDefaultAsync() ?? "";
 
-            var sporuri = new List<SporSalariu>();
-            foreach (var x in sporRows)
-            {
-                bool isPercent = x.ValoareSporProcent.HasValue && x.ValoareSporProcent.Value != 0m;
-                var value = isPercent ? x.ValoareSporProcent!.Value : (x.ValoareSpor ?? 0m);
-                if (value <= 0m) continue;
-
-                var referintaId = string.IsNullOrWhiteSpace(x.SporTypeCode) ? x.IdSpor.ToString() : x.SporTypeCode;
-
-                sporuri.Add(new SporSalariu
-                {
-                    IsProcent = isPercent,
-                    Valoare = value,
-                    Moneda = isPercent ? null : "RON",
-                    Tip = new SporTip
-                    {
-                        Type = "sporAngajator",
-                        Referinta = new Referinta { Id = referintaId },
-                        Nume = RegesJson.FixText(x.SporName)
-                    }
-                });
-
-                Debug.WriteLine($"[DEBUG] Spor row {x.IdContracteSporuri}: IdSpor={x.IdSpor}, Name='{x.SporName}', Code='{x.SporTypeCode}', IsPercent={isPercent}, Value={value}");
-            }
-
-            // 4) Time window
-            DateTime? startDate = c.StartDate;   // din contracte_ru
-            TimeSpan? startHour = c.StartHour;   // din contracte_ru.ora_inceput
-            TimeSpan? endHour = c.EndHour;     // din contracte_ru.ora_sfarsit
-
-            DateTime? inceputInterval = (startDate.HasValue && startHour.HasValue)
-                ? startDate.Value.Date + startHour.Value
-                : (DateTime?)null;
-
-            DateTime? sfarsitInterval = (startDate.HasValue && endHour.HasValue)
-                ? startDate.Value.Date + endHour.Value
-                : (DateTime?)null;
-
-            // pentru vizibilitate în Output:
-            Debug.WriteLine($"[DEBUG] IdContract={c.IdContract} StartDate={startDate:yyyy-MM-dd} " +
-                            $"StartHour={(startHour.HasValue ? startHour.Value.ToString(@"hh\:mm") : "<null>")} " +
-                            $"EndHour={(endHour.HasValue ? endHour.Value.ToString(@"hh\:mm") : "<null>")} " +
-                            $"=> inceputInterval={inceputInterval:yyyy-MM-ddTHH:mm:ss.fff} " +
-                            $"sfarsitInterval={sfarsitInterval:yyyy-MM-ddTHH:mm:ss.fff}");
-
-            // 5) COR parse
-            static int TryParseInt(string? s) => int.TryParse(s, out var n) ? n : 0;
-
-            // 6) Build payload
-            var continut = new ContinutContract
-            {
-                ReferintaSalariat = new Models.Contracts.Envelope.ReferintaSalariat { Id = salariatRefId },
-
-                Cor = new Cor
-                {
-                    Cod = TryParseInt(c.OccupationCode),
-                    Versiune = versionCor
-                },
-
-                DataConsemnare = c.RecordDate,
-                DataContract = c.ContractDate,
-                DataInceputContract = c.StartDate,
-                DataSfarsitContract = c.EndDate,
-                ExceptieDataSfarsit = string.IsNullOrWhiteSpace(endDateExceptionCode) ? null : endDateExceptionCode,
-
-                NumarContract = c.ContractNumber ?? "",
-                Radiat = isState7,
-
-                Salariu = c.GrossSalary.HasValue
-                    ? (int?)Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
-                    : null,
-                Moneda = "RON",
-                NivelStudii = educationLevelCode,
-
-                // 🔧 Only change: omit when empty to satisfy schema
-                SporuriSalariu = (sporuri.Count > 0) ? sporuri : null,
-
-                StareCurenta = new StareCurenta(),
-
-                TimpMunca = new TimpMunca
-                {
-                    Norma = workingscheduleCode,
-                    Durata = c.ContractDuration.HasValue ? (int?)Convert.ToInt32(c.ContractDuration.Value) : null,
-                    IntervalTimp = workingTimeIntervalCode,
-                    Repartizare = repartizare,  //
-                    RepartizareMunca = repartizareMunca, //repartizareMunca
-                    InceputInterval = inceputInterval,
-                    SfarsitInterval = sfarsitInterval,
-                    TipTura = shiftTypeCode,
-                },
-
-                TipContract = typeContractRuCode,
-                TipDurata = typeContractDurationCode,
-                TipNorma = workNormTypeCode,
-                TipLocMunca = "Mobil", // worktypelocationtype, //hardcode, to !!!
-                JudetLocMunca = "CJ", //do
-
-                AplicaL153 = null,
-
-                DetaliiL153 = new DetaliiL153
-                {
-                    // AnexaL153 = c.L153AnnexCode,
-                    // CapitolL153 = c.L153CapitolCode,
-                    // LiteraL153 = c.L153LiteraCode,
-                    // ClasificareSuplimentaraL153 = c.L153ClasifCode,
-                    // FunctieL153 = c.L153FunctieCode,
-                    // SpecialitateFunctieL153 = c.L153SpecFunctieCode,
-                    // StructuraAprobataL153 = c.L153StructuraCode,
-                    // SpecialitateStructuraAprobataL153 = c.L153SpecStructuraCode,
-                    // GradProfesionalL153 = c.L153GradProfCode,
-                    // GradatieL153 = c.L153GradatieCode,
-                    // DenumireAltaFunctieL153 = c.L153AltaFunctieName,
-                    // ExplicatieFunctieL153 = c.L153ExplicatieFunctie,
-                    // AltGradProfesionalL153 = c.L153AltGradProfText
-                }
-            };
-
-            var envelope = new ContractEnvelope
+            var env = new ContractSuspendariEnvelope
             {
                 Header = new Header
                 {
                     MessageId = Guid.NewGuid().ToString("D"),
                     ClientApplication = "SAP",
                     Version = "5",
-                    Operation = "AdaugareContract",
+                    Operation = "SuspendareContract",
                     AuthorId = Properties.Settings.Default.SavedCredentialsUser,
                     SessionId = _session.SessionId,
                     User = _session.UserName,
                     Timestamp = DateTime.UtcNow
                 },
-                Continut = continut
+                ReferintaContract = new ReferintaContract
+                {
+                    // "$type":"referinta" lives in this model
+                    Id = regesContractsGuid?.ToString("D") ?? ""
+                },
+                Actiune = new Actiune
+                {
+                    // must be "actiuneSuspendare"
+                    Type = "actiuneSuspendare",
+                    DataInceput = suspensionStart,    // DateTime (with offset if you store it)
+                    DataSfarsit = suspensionEnd,      // can be null (omitted in JSON)
+                    //Explicatie = $"SUSPENDARE CONFORM {legalGroundCode}",
+                    TemeiLegal = legalGroundCode
+                },
+                // Do NOT send document: leave null -> omitted from JSON
+                DocumentJustificativ = null
             };
 
-            Debug.WriteLine($"Built contract payload for idContract={idContract}: {JsonSerializer.Serialize(envelope, _jsonOpts)}");
-            return envelope;
+            // For visibility
+            Debug.WriteLine($"[SUSP PAYLOAD] {JsonSerializer.Serialize(env, _jsonOpts)}");
+            return env;
+        
         }
 
         private static readonly JsonSerializerOptions _jsonOpts = new JsonSerializerOptions
@@ -1681,38 +1529,7 @@ namespace api_itm.UserControler.Contracts.Suspended
         }
 
 
-        private void ApplyRowColorsByRegesId()
-        {
-            if (dgvContracteSuspendate?.Columns == null || dgvContracteSuspendate.Rows.Count == 0) return;
-
-            // find the idContract column
-            DataGridViewColumn idCol = dgvContracteSuspendate.Columns
-                .Cast<DataGridViewColumn>()
-                .FirstOrDefault(c =>
-                    string.Equals(c.DataPropertyName, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(c.Name, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase));
-
-            if (idCol == null) return;
-
-            var green = Color.FromArgb(230, 255, 230);
-            var greenSel = Color.FromArgb(210, 240, 210);
-            var red = Color.FromArgb(255, 235, 235);
-            var redSel = Color.FromArgb(240, 210, 210);
-
-            foreach (DataGridViewRow row in dgvContracteSuspendate.Rows)
-            {
-                if (row.IsNewRow) continue;
-
-                var raw = row.Cells[idCol.Index].Value?.ToString();
-                if (int.TryParse(raw, out var contractId))
-                {
-                    bool hasReges = _contractsWithRegesId.Contains(contractId);
-                    row.DefaultCellStyle.BackColor = hasReges ? green : red;
-                    row.DefaultCellStyle.SelectionBackColor = hasReges ? greenSel : redSel;
-                }
-            }
-        }
-
+      
         [Conditional("DEBUG")]
         private void ShowJsonPreview(string json)
         {

@@ -265,5 +265,8 @@ namespace api_itm.Data.Entity.Ru
 
         [Column("localitate_nastere")]
         public string? BirthLocality { get; set; }                    // varchar, NULL
+
+        [Column("reges_sincronizare")]
+        public int? RegesSyncVariable { get; set; }                    // varchar, NULL
     }
 }

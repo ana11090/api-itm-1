@@ -364,7 +364,7 @@ namespace api_itm.UserControler.Contracts.Operations
             var payload = await addView.BuildContractPayloadAsync(idContract);
 
             // 2) Flip operation to modification
-            payload.Header.Operation = "ModificareContract";
+            payload.Header.Operation = "CorectieContract";
 
             // 3) Attach REGES contract reference
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -799,6 +799,9 @@ namespace api_itm.UserControler.Contracts.Operations
                             string.Equals(rec.Status, "Success", StringComparison.OrdinalIgnoreCase) &&
                             rec.RegesContractId.HasValue)
                         {
+                            await db.ContractsRu
+                                   .Where(x => x.IdContract == idContract)
+                                   .ExecuteUpdateAsync(s => s.SetProperty(p => p.RegesSyncVariable, 0));
                             ok++;
                             lines.Add(new SendLine
                             {
@@ -861,7 +864,7 @@ namespace api_itm.UserControler.Contracts.Operations
                  from idc in idcj.DefaultIfEmpty()
 
                  where rs != null && rs.RegesEmployeeId != null
-                    && idc != null && idc.RegesContractId != null
+                    && idc != null && idc.RegesContractId != null && c.RegesSyncVariable == 2
                  orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
                  select new { C = c, RegesEmployeeId = rs.RegesEmployeeId }
 ).ToListAsync();

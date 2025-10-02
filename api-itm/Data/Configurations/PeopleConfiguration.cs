@@ -132,6 +132,9 @@ namespace api_itm.Data.Configurations
             builder.Property(p => p.ApprovalDate).HasColumnName("dataaviz");
 
             builder.Property(p => p.BirthLocality).HasColumnName("localitate_nastere");
+
+            builder.Property(c => c.RegesSyncVariable).HasColumnName("reges_sincronizare");//RegesSyncVariable
+
         }
     }
 }

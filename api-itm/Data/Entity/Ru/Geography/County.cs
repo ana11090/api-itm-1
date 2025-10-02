@@ -11,7 +11,7 @@ namespace api_itm.Data.Entity.Ru.Geography
     [Table("judete", Schema = "ru")]
     public class County
     {
-        //idjudet	numejudet	indicativjudet	numejudet_fd
+        //idjudet numejudet indicativjudet	numejudet_fd
         [Key]
         [Column("idjudet")]
         public int CountyId { get; set; }

@@ -353,5 +353,7 @@ namespace api_itm.Data.Entity.Ru.Contracts
 
         public int? CountyID { get; set; }
         public int? CityId { get; set; }
+        public int? RegesSyncVariable { get; set; }
+
     }
 }

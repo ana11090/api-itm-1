@@ -2,8 +2,6 @@
 using api_itm.Data.Entity.Ru.Reges;
 using api_itm.Infrastructure;
 using api_itm.Infrastructure.Sessions;
-using api_itm.Models.Employee;
-using api_itm.Models.Reges;
 using api_itm.Models.View;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,10 +24,9 @@ using static api_itm.Program;
 
 namespace api_itm.UserControler.Employee
 {
-    public partial class ControlerModifyEmployeeView : UserControl
+    public partial class ControlerCorrectionEmployeeView : UserControl
     {
-
-        private const int OP_MODIFICARE_SALARIAT = 2; // always change this in every controller
+        private const int OP_CORECTARE_SALARIAT = 3; // always change this in every controller
 
         #region Copy in the future!
         private readonly AppDbContext _db;
@@ -91,8 +88,8 @@ namespace api_itm.UserControler.Employee
             return string.Compare(a.ToString(), b.ToString(), StringComparison.CurrentCulture);
         });
 
-    //    private static string Trunc(string s, int max = 600)
-    //=> string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
+        //    private static string Trunc(string s, int max = 600)
+        //=> string.IsNullOrEmpty(s) ? s : (s.Length <= max ? s : s.Substring(0, max) + "...[truncated]");
 
         private string WithConsumer(string path)
             => string.IsNullOrWhiteSpace(ConsumerId) ? path : $"{path}?consumerId={Uri.EscapeDataString(ConsumerId)}";
@@ -107,7 +104,7 @@ namespace api_itm.UserControler.Employee
             WriteIndented = true
         };
 
-        public ControlerModifyEmployeeView(AppDbContext db, ISessionContext session)
+        public ControlerCorrectionEmployeeView(AppDbContext db, ISessionContext session)
         {
             InitializeComponent();
             _db = db;
@@ -326,8 +323,8 @@ namespace api_itm.UserControler.Employee
             var employeeView = Program.App.Services.GetRequiredService<ControlerAddEmployeeView>();
             var payload = await employeeView.BuildPayloadForPerson(personId);
 
-            // 2) flip to Modificare
-            payload.Header.Operation = "ModificareSalariat";
+            // 2) flip to Corectie
+            payload.Header.Operation = "CorectieSalariat";
 
             // 3) fetch reges_salariat_id from idsreges_salariat table
             var salariatId = await _db.RegesSyncs
@@ -340,7 +337,7 @@ namespace api_itm.UserControler.Employee
                 throw new InvalidOperationException($"No REGES salariat GUID found for PersonId={personId}");
 
             // 4) assign referintaSalariat
-            payload.ReferintaSalariat = new ReferintaSalariat { Id = salariatId };
+            payload.ReferintaSalariat = new Models.Employee.ReferintaSalariat { Id = salariatId };
 
             return payload;
         }
@@ -415,7 +412,7 @@ namespace api_itm.UserControler.Employee
             // Title on its own line
             lblTitle = new Label
             {
-                Text = "Modificare date salariati",
+                Text = "Corectare date salariati",
                 AutoSize = true,
                 Margin = new Padding(5, 0, 10, 6)
             };
@@ -532,7 +529,7 @@ namespace api_itm.UserControler.Employee
             Debug.WriteLine(_session.UserId);
             var rec = new RegesSyncOpenrationsEmployee
             {
-                OperationId = OP_MODIFICARE_SALARIAT,
+                OperationId = OP_CORECTARE_SALARIAT,
                 PersonId = personId,
                 UserId = int.Parse(_session.UserId),
                 MessageResponseId = Guid.TryParse(sync.header.messageId, out var varr) ? varr : (Guid?)null,
@@ -658,10 +655,11 @@ namespace api_itm.UserControler.Employee
 
                             failures.Add((
                                 personId,
-                                $"{p?.LastName} {p?.FirstName}",
-                                p?.NationalId,
-                                errMsg
+                                $"{p?.LastName ?? ""} {p?.FirstName ?? ""}".Trim(),
+                                p?.NationalId ?? "",
+                                errMsg ?? ""
                             ));
+
                         }
                     }
                     else
@@ -764,6 +762,47 @@ namespace api_itm.UserControler.Employee
             UpdateCounts();
         }
 
+        private async Task<SyncResponse> SendOneAsync(int personId)
+        {
+            var payload = await BuildPayloadForPerson(personId);
+            var json = RegesJson.SanitizeAndSerialize(payload);
+
+            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
+            http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", GetAccessToken());
+
+            Debug.WriteLine($"[SEND] POST {http.BaseAddress}{InregistrareSalariatUrl}");
+            Debug.WriteLine($"[SEND] Body={json}");
+
+            using var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var resp = await http.PostAsync(InregistrareSalariatUrl, content);
+            var body = await resp.Content.ReadAsStringAsync();
+            Debug.WriteLine($"[SEND] Status={(int)resp.StatusCode} Body={body}");
+
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {body}");
+
+            var sync = JsonSerializer.Deserialize<SyncResponse>(body, _jsonOpts)
+                       ?? throw new InvalidOperationException("Empty sync response.");
+
+            Debug.WriteLine($"[SYNC OK] personId={personId}, responseId={sync.responseId}, messageId={sync.header?.messageId}");
+
+            return sync;
+        }
+
+        private string GetAccessToken()
+        {
+            if (SessionState.Tokens == null || string.IsNullOrEmpty(SessionState.Tokens.AccessToken))
+                throw new InvalidOperationException("Access token not available. Please log in first.");
+
+            // optional: check if token is expired
+            if (SessionState.Tokens.Expiration <= DateTime.UtcNow)
+                throw new InvalidOperationException("Access token has expired. Please refresh or log in again.");
+
+            return SessionState.Tokens.AccessToken;
+        }
+
+
         private async Task UpdateIdsRegesRowAsync(
     string responseId,
     string codeType,
@@ -786,7 +825,7 @@ namespace api_itm.UserControler.Employee
 
                 if (rec == null)
                 {
-                    Debug.WriteLine($"[DB] No RegesSyncOpenrationsEmployee row for responseId={responseId}");
+                    Debug.WriteLine($"[DB] No RegesSyncModificationEmployee row for responseId={responseId}");
                     return;
                 }
 
@@ -922,7 +961,7 @@ namespace api_itm.UserControler.Employee
                     catch { /* best-effort logging only */ }
                 }
 
-                // update same RegesSyncOpenrationsEmployee row (saves RegesEmployeeId if present)
+                // update same RegesSyncModificationEmployee row (saves RegesEmployeeId if present)
                 await UpdateIdsRegesRowAsync(responseId, codeType, code, description, regesSalariatId, operation, authorIdStr);
                 return; // done for this receipt
             }
@@ -1182,22 +1221,23 @@ namespace api_itm.UserControler.Employee
         }
 
         #endregion
-        // ================================================================================================
+        public ControlerCorrectionEmployeeView()
+        {
+            InitializeComponent();
+        }
+
+        private void ControlerCorrectionEmployeeView_Load(object sender, EventArgs e)
+        {
+
+        }
 
         private async Task LoadEmployeesAsync()
         {
             // 1) Raw read + lookups needed for payload-like values
             var raw = await (
                   from p in _db.People
-                  where p.Status == "A"
-                  // join rs in _db.Set<RegesSync>().AsNoTracking()
-                  //   on p.PersonId equals rs.PersonId
-                  // join contracts in _db.Set<ContractsRu>().AsNoTracking()
-                  //on p.PersonId equals contracts.PersonId
-                  // where rs.RegesEmployeeId != null && p.RegesSyncVariable == 2
-
-                  where p.Status == "A"
-  && p.RegesSyncVariable == 2
+                  where p.Status == "A"  
+  && p.RegesSyncVariable == 3 // Correction / Corectie 
   && _db.Set<RegesSync>().AsNoTracking()
        .Any(rs => rs.PersonId == p.PersonId && rs.RegesEmployeeId != null)
   && _db.Set<ContractsRu>().AsNoTracking()
@@ -1364,100 +1404,8 @@ namespace api_itm.UserControler.Employee
             _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null;
 
             //  after DataSource
-            ApplyRowColorsByRegesId();
-        }
-
-        private async Task<SyncResponse> SendOneAsync(int personId)
-        {
-            var payload = await BuildPayloadForPerson(personId);
-            var json = RegesJson.SanitizeAndSerialize(payload);
-
-            using var http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
-            http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", GetAccessToken());
-
-            Debug.WriteLine($"[SEND] POST {http.BaseAddress}{InregistrareSalariatUrl}");
-            Debug.WriteLine($"[SEND] Body={json}");
-
-            using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var resp = await http.PostAsync(InregistrareSalariatUrl, content);
-            var body = await resp.Content.ReadAsStringAsync();
-            Debug.WriteLine($"[SEND] Status={(int)resp.StatusCode} Body={body}");
-
-            if (!resp.IsSuccessStatusCode)
-                throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {body}");
-
-            var sync = JsonSerializer.Deserialize<SyncResponse>(body, _jsonOpts)
-                       ?? throw new InvalidOperationException("Empty sync response.");
-
-            Debug.WriteLine($"[SYNC OK] personId={personId}, responseId={sync.responseId}, messageId={sync.header?.messageId}");
-
-            return sync;
-        }
-
-        private string GetAccessToken()
-        {
-            if (SessionState.Tokens == null || string.IsNullOrEmpty(SessionState.Tokens.AccessToken))
-                throw new InvalidOperationException("Access token not available. Please log in first.");
-
-            // optional: check if token is expired
-            if (SessionState.Tokens.Expiration <= DateTime.UtcNow)
-                throw new InvalidOperationException("Access token has expired. Please refresh or log in again.");
-
-            return SessionState.Tokens.AccessToken;
-        }
-
-
-        public ControlerModifyEmployeeView()
-        {
-            InitializeComponent();
-        }
-
-        private void ControlerModifyEmployeeView_Load(object sender, EventArgs e)
-        {
-
-        }
-
-        // ==================== DTOs to match REGES docs (minimal) ====================
-        // Sync response after POST /api/salariat/inregistrare
-        // Envelope returned by POST /api/Status/PollMessage
-        public sealed class PollMessageResponse
-        {
-            public PollResult result { get; set; }
-            public string responseId { get; set; }   // <-- this is your receiptId
-            public SyncHeader header { get; set; }   // reuse your existing SyncHeader
-        }
-
-        public sealed class PollResult
-        {
-            public string code { get; set; }         // e.g., "OK" or "FAIL"
-            public string codeType { get; set; }     // e.g., "SUCCESS" or "ERROR"
-            public bool? signSpecified { get; set; }
-            public string description { get; set; }
-            public bool? relatedResultsExpected { get; set; }
-        }
-
-        // Keep these from earlier
-        public sealed class SyncResponse
-        {
-            public string responseId { get; set; }
-            public SyncHeader header { get; set; }
-        }
-
-        public sealed class SyncHeader
-        {
-            public string messageId { get; set; }
-            public string authorId { get; set; }
-            public string clientApplication { get; set; }
-            public string version { get; set; }
-            public string operation { get; set; }
-            public string sessionId { get; set; }
-            public string user { get; set; }
-            public string userId { get; set; }
-            public DateTime? timestamp { get; set; }
+            //ApplyRowColorsByRegesId();
         }
 
     }
-
-
 }

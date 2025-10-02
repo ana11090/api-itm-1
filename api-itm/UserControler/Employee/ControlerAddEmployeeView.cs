@@ -28,10 +28,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static api_itm.Program;
+ 
 
 namespace api_itm.UserControler.Employee
 {
-    public partial class ControlerEmployeeView : UserControl
+    public partial class ControlerAddEmployeeView : UserControl
     {
         private readonly AppDbContext _db;
         private Label lblTitle;
@@ -109,7 +110,7 @@ namespace api_itm.UserControler.Employee
         };
         // ================================================================================================
 
-        public ControlerEmployeeView(AppDbContext db, ISessionContext session)
+        public ControlerAddEmployeeView(AppDbContext db, ISessionContext session)
         {
             InitializeComponent();
             _db = db;
@@ -353,8 +354,8 @@ namespace api_itm.UserControler.Employee
         {
             // 1) Raw read + lookups needed for payload-like values
             var raw = await (
-                  from p in _db.People
-                  where p.Status == "A"
+                  from p in _db.People 
+                  where p.Status == "A" && p.RegesSyncVariable == 1 // Adaugare
 
                   // LEFT JOIN contracts, but pre-filter contracts to status=1
                   join cr0 in _db.ContractsRu.Where(x =>
@@ -876,6 +877,9 @@ namespace api_itm.UserControler.Employee
                         if (rec != null && string.Equals(rec.Status, "Success", StringComparison.OrdinalIgnoreCase) && rec.RegesEmployeeId.HasValue)
                         {
                             ok++;
+                            await _db.People
+                                        .Where(x => x.PersonId == personId)
+                                        .ExecuteUpdateAsync(s => s.SetProperty(p => p.RegesSyncVariable, 0));
                             Debug.WriteLine($"[REGES OK] personId={personId} | name={p?.LastName} {p?.FirstName} | cnp={p?.NationalId} | salariatId={rec.RegesEmployeeId}");
                         }
                         else

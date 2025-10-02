@@ -152,6 +152,8 @@ namespace api_itm.Data.Configurations
             builder.Property(c => c.CountyID).HasColumnName("idjudet");
             builder.Property(c => c.CityId).HasColumnName("idlocalitate");
 
+            builder.Property(c => c.RegesSyncVariable).HasColumnName("reges_sincronizare");//RegesSyncVariable
+
         }
     }
 }

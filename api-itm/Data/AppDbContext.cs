@@ -1,6 +1,7 @@
 ﻿using api_itm.Data.Entity.api_itm.Domain.Employees;
 using api_itm.Data.Entity.Ru;
 using api_itm.Data.Entity.Ru.Contracts;
+using api_itm.Data.Entity.Ru.Contracts.ContractsSuspended;
 using api_itm.Data.Entity.Ru.Contracts.Work;
 using api_itm.Data.Entity.Ru.Disability;
 using api_itm.Data.Entity.Ru.ForginerWorkAuthorization;
@@ -59,8 +60,14 @@ namespace api_itm
         public DbSet<RegesCor> RegesCor => Set<RegesCor>();//RegesCor   
         public DbSet<DisabilityInvalidityGrade> DisabilityInvalidityGrade => Set<DisabilityInvalidityGrade>(); //RegesCor   
 
-        public DbSet<RegesSyncModificationEmployee> RegesSyncModificationEmployee => Set<RegesSyncModificationEmployee>(); //RegesSyncModificationEmployee
+        public DbSet<RegesSyncOpenrationsEmployee> RegesSyncOpenrationsEmployee => Set<RegesSyncOpenrationsEmployee>(); //RegesSyncModificationEmployee
         public DbSet<RegesSyncModificationContracts> RegesSyncModificationContracts => Set<RegesSyncModificationContracts>(); //RegesSyncModificationContracts
+        public DbSet<City> City => Set<City>(); //City
+        public DbSet<CountyCity> CountyCity => Set<CountyCity>(); //CountyCity
+
+        public DbSet<ContractRuSuspended> ContractRuSuspended => Set<ContractRuSuspended>(); //ContractRuSuspended
+        public DbSet<SuspensionLegalGround> SuspensionLegalGround => Set<SuspensionLegalGround>(); //SuspensionLegalGround
+
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {

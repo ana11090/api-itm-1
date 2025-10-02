@@ -57,6 +57,8 @@ namespace api_itm.Models.Contracts.Envelope
 
         // 2-letter county code (e.g., "AG")
         [JsonPropertyName("judetLocMunca")] public string? JudetLocMunca { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        [JsonPropertyName("LocalitateLocMunca")] public Localitate? LocalitateLocMunca { get; set; }
 
         [JsonPropertyName("aplicaL153")] public bool? AplicaL153 { get; set; }
 

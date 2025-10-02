@@ -26,6 +26,8 @@ namespace api_itm.Data.Configurations.Ru
             b.Property(e => e.ErrorMessage).HasColumnName("error_message");
             b.Property(e => e.CreatedAt).HasColumnName("created_at").HasDefaultValueSql("NOW()");
             b.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasDefaultValueSql("NOW()");
+            
+
         }
     }
 }

@@ -40,7 +40,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Models\Contracts\SuspendariEnvelope\" />
+    <Folder Include="Models\Contracts\CorrectionContracts\" />
+    <Folder Include="Models\Employee\CorrectionEmployess\" />
   </ItemGroup>
 
 </Project>

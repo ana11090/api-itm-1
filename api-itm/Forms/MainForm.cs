@@ -16,7 +16,7 @@ namespace api_itm
 {
     public partial class MainForm : Form
     {
-        private readonly ControlerEmployeeView _employeeView;
+        private readonly ControlerAddEmployeeView _employeeView;
         
 
         private readonly AppDbContext _db;
@@ -138,7 +138,7 @@ namespace api_itm
                     switch (item)
                     {
                         case "Adaugare date salariati":
-                            var employeeView = Program.App.Services.GetRequiredService<ControlerEmployeeView>();
+                            var employeeView = Program.App.Services.GetRequiredService<ControlerAddEmployeeView>();
                             employeeView.Dock = DockStyle.Fill;
                             return employeeView;
                     }
@@ -149,6 +149,13 @@ namespace api_itm
                             employeeView.Dock = DockStyle.Fill;
                             return employeeView;
                     }
+                    switch (item)
+                    {
+                        case "Corectie salariat":
+                            var correctionContractView = Program.App.Services.GetRequiredService<ControlerCorrectionEmployeeView>();
+                            correctionContractView.Dock = DockStyle.Fill;
+                            return correctionContractView;
+                    }//CorectieSalariat
                     switch (item)
                     {
                         case "Inregistrare contracte":
@@ -163,6 +170,7 @@ namespace api_itm
                             contracteView.Dock = DockStyle.Fill;
                             return contracteView;
                     }
+                    //Suspendare contract
                     switch (item)
                     {
                         case "Suspendare contract":
@@ -172,8 +180,44 @@ namespace api_itm
                     }
                     switch (item)
                     {
+                        case "Corectie suspendare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerCorrectionSuspendedContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    switch (item)
+                    {
+                        case "Modificare suspendare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerModificationSuspendedContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    switch (item)
+                    {
+                        case "Anulare suspendare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerCancelSuspendedContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    } 
+                    switch (item)
+                    {
+                        case "Incetare suspendare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerStopedSuspendedContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    switch (item)
+                    {
+                        case "Corectie incetare suspendare contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerStopedSuspendedContractsView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }
+                    //
+                    switch (item)
+                    {
                         case "Incetare contract":
-                            var contracteView = Program.App.Services.GetRequiredService<ControlerTerminationContractsView> ();
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerCorrectionStopedSuspendedContractsView> ();
                             contracteView.Dock = DockStyle.Fill;
                             return contracteView;
                     }
@@ -208,17 +252,24 @@ namespace api_itm
         ControlSidebarMenu.Group("Salariati",
             ControlSidebarMenu.Leaf("Adaugare date salariati"),
              ControlSidebarMenu.Group("Modificare",
-                ControlSidebarMenu.Leaf("Modificare salariat")
+                ControlSidebarMenu.Leaf("Modificare salariat"),
+                ControlSidebarMenu.Leaf("Corectie salariat")//CorectieSalariat
             )
         ),
 
         ControlSidebarMenu.Group("Contracte",
             ControlSidebarMenu.Leaf("Inregistrare contracte"),
             ControlSidebarMenu.Group("Operatii contract",
-                ControlSidebarMenu.Leaf("Modificare contract")
+                ControlSidebarMenu.Leaf("Modificare contract"),
+                ControlSidebarMenu.Leaf("Corectie contract")//CorectieContract
             ),
             ControlSidebarMenu.Group("Suspendare",
-                ControlSidebarMenu.Leaf("Suspendare contract")
+                ControlSidebarMenu.Leaf("Suspendare contract"), //ControlerSuspendedContractsView
+                ControlSidebarMenu.Leaf("Corectie suspendare contract"), // ControlerCorrectionSuspendedContractsView
+                ControlSidebarMenu.Leaf("Modificare suspendare contract"), // ControlerModificationSuspendedContractsView
+                ControlSidebarMenu.Leaf("Anulare suspendare contract"), // ControlerCancelSuspendedContractsView
+                ControlSidebarMenu.Leaf("Incetare suspendare contract"), // ControlerStopedSuspendedContractsView
+                ControlSidebarMenu.Leaf("Corectie incetare suspendare contract") // ControlerCorrectionStopedSuspendedContractsView
             ),
             ControlSidebarMenu.Group("Incetare - Reactivare",
                 ControlSidebarMenu.Leaf("Incetare contract")
