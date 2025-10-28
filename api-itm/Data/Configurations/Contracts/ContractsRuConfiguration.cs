@@ -8,7 +8,7 @@ namespace api_itm.Data.Configurations
     {
         public void Configure(EntityTypeBuilder<ContractsRu> builder)
         {
-            builder.ToTable("contracte_ru");
+            builder.ToTable("contracte_ru", "ru");
 
             // PK
             builder.HasKey(c => c.IdContract);
@@ -147,7 +147,8 @@ namespace api_itm.Data.Configurations
             builder.Property(c => c.WorkDistributionId).HasColumnName("idrepartizaremunca");
             builder.Property(c => c.ShiftTypeId).HasColumnName("idtiptura");
 
-            builder.Property(c => c.WorkTypeID).HasColumnName("idtiplocmunca"); //WorkTypeID
+
+            builder.Property(c => c.WorkTypeID).HasColumnName("idtiplocmunca");  //WorkTypeID
 
             builder.Property(c => c.CountyID).HasColumnName("idjudet");
             builder.Property(c => c.CityId).HasColumnName("idlocalitate");

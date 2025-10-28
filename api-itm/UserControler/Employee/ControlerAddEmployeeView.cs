@@ -242,9 +242,7 @@ namespace api_itm.UserControler.Employee
             _txtSearch.TextChanged += (_, __) => ApplySearchFilter();
             _btnClearSearch.Click += (_, __) => { _txtSearch.Clear(); _txtSearch.Focus(); };
 
-
-            // color after data binds
-            ApplyRowColorsByRegesId();
+ 
 
             dgvViewSalariati.Dock = DockStyle.Fill;
             dgvViewSalariati.AutoGenerateColumns = true;
@@ -299,8 +297,7 @@ namespace api_itm.UserControler.Employee
             {
                 EnsureSpecialColumns();
                 RenumberRows();
-                UpdateCounts();
-                ApplyRowColorsByRegesId();
+                UpdateCounts(); 
             };
 
             dgvViewSalariati.Sorted += (_, __) => RenumberRows();
@@ -315,41 +312,7 @@ namespace api_itm.UserControler.Employee
 
         }
 
-        private void ApplyRowColorsByRegesId()
-        {
-            if (dgvViewSalariati?.Columns == null || dgvViewSalariati.Rows.Count == 0) return;
-
-            // find the personId column
-            DataGridViewColumn pidCol = null;
-            foreach (DataGridViewColumn col in dgvViewSalariati.Columns)
-            {
-                if (string.Equals(col.DataPropertyName, PersonIdPropertyName, StringComparison.OrdinalIgnoreCase))
-                {
-                    pidCol = col; break;
-                }
-            }
-            if (pidCol == null) return;
-
-            // gentle green / red-ish
-            var green = System.Drawing.Color.FromArgb(230, 255, 230);
-            var greenSel = System.Drawing.Color.FromArgb(210, 240, 210);
-            var red = System.Drawing.Color.FromArgb(255, 235, 235);
-            var redSel = System.Drawing.Color.FromArgb(240, 210, 210);
-
-            foreach (DataGridViewRow row in dgvViewSalariati.Rows)
-            {
-                if (row.IsNewRow) continue;
-
-                var raw = row.Cells[pidCol.Index].Value?.ToString();
-                if (int.TryParse(raw, out var pid))
-                {
-                    bool hasId = _personsWithRegesId.Contains(pid);
-                    row.DefaultCellStyle.BackColor = hasId ? green : red;
-                    row.DefaultCellStyle.SelectionBackColor = hasId ? greenSel : redSel;
-                }
-            }
-        }
-
+      
         private async Task LoadEmployeesAsync()
         {
             // 1) Raw read + lookups needed for payload-like values
@@ -516,9 +479,7 @@ namespace api_itm.UserControler.Employee
             _allRowsData = rows;                         // full list for filtering
             _rowsData = dgvViewSalariati.DataSource;     // current (possibly filtered/sorted)
             _rowItemType = (rows.Count > 0) ? rows[0].GetType() : null;
-
-            //  after DataSource
-            ApplyRowColorsByRegesId();
+             
         }
 
         private void ApplySearchFilter()
@@ -568,8 +529,7 @@ namespace api_itm.UserControler.Employee
             _rowsData = list;
 
             RenumberRows();
-            UpdateCounts();
-            ApplyRowColorsByRegesId();
+            UpdateCounts(); 
 
             foreach (DataGridViewColumn c in dgvViewSalariati.Columns)
                 c.HeaderCell.SortGlyphDirection = SortOrder.None;
@@ -657,8 +617,7 @@ namespace api_itm.UserControler.Employee
 
             // păstrăm UX-ul existent
             RenumberRows();
-            UpdateCounts();
-            ApplyRowColorsByRegesId();
+            UpdateCounts(); 
         }
 
 
@@ -1353,8 +1312,7 @@ namespace api_itm.UserControler.Employee
             };
 
             Debug.WriteLine($"Built payload for personId={personId}: {JsonSerializer.Serialize(payload, _jsonOpts)}");
-            // color after data binds
-            ApplyRowColorsByRegesId();
+            // color after data binds 
             return payload;
         }
 

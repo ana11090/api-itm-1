@@ -7,6 +7,16 @@
     <Nullable>enable</Nullable>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <PackageIcon>icon reges itm.ico</PackageIcon>
+
+    <!-- ADD this instead (manual versioning) -->
+    <Version>1.0.0.14</Version>
+    <FileVersion>1.0.0.14</FileVersion>
+    <AssemblyInformationalVersion>1.0.0.14</AssemblyInformationalVersion>
+
+    <!-- Keep CLR binding stable; don’t bump unless you want binding changes -->
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,12 +27,21 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.10" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.8" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="9.0.10" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.13.0" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 
   <ItemGroup>
     <Compile Update="Properties\Settings.Designer.cs">
@@ -33,6 +52,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="icon reges itm.ico">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
     <None Update="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -42,6 +65,7 @@
   <ItemGroup>
     <Folder Include="Models\Contracts\CorrectionContracts\" />
     <Folder Include="Models\Employee\CorrectionEmployess\" />
+    <Folder Include="Properties\PublishProfiles\" />
   </ItemGroup>
 
 </Project>

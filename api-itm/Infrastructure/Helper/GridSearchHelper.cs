@@ -70,8 +70,7 @@ namespace api_itm.Infrastructure.Helper
         //        _rowsData = list;
 
         //        RenumberRows();
-        //        UpdateCounts();
-        //        ApplyRowColorsByRegesId();
+        //        UpdateCounts(); 
 
         //        foreach (DataGridViewColumn c in dgvViewSalariati.Columns)
         //            c.HeaderCell.SortGlyphDirection = SortOrder.None;

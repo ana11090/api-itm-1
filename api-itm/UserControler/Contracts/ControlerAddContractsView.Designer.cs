@@ -40,6 +40,7 @@
             dgvAddContracts.RowHeadersWidth = 51;
             dgvAddContracts.Size = new Size(356, 214);
             dgvAddContracts.TabIndex = 0;
+            //dgvAddContracts.CellContentClick += dgvAddContracts_CellContentClick_1;
             // 
             // ControlerAddContractsView
             // 

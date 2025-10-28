@@ -36,7 +36,7 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(1272, 465);
             Name = "MainForm";
-            Text = "MainForm";
+            Text = "Reges ITM";
             Load += MainForm_Load;
             ResumeLayout(false);
         }

@@ -46,5 +46,8 @@ namespace api_itm.Data.Entity.Ru.Reges
 
         [Column("updated_at")]
         public DateTime Updated_At { get; set; }
+
+        [Column("operation")]
+        public string? Operation { get; set; }
     }
 }

@@ -41,6 +41,9 @@ namespace api_itm.Models.Contracts
         // Loc munca
         public string? TipLocMunca { get; set; }
 
+        public string? JudetLocMunca { get; set; }
+
+
         // REGES reference shown for clarity
         public Guid? RegesEmployeeId { get; set; }
     }

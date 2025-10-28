@@ -3,10 +3,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace api_itm.Infrastructure
 {
-    /// <summary>
-    /// Creează/actualizează tabela idsreges_contracte pentru tracking REGES (contracte).
-    /// Poți apela în fiecare startup: await DbIdRagesContractsSetup.EnsureAsync(db);
-    /// </summary>
     public static class DbIdRagesContractsSetup
     {
         public static Task EnsureAsync(DbContext db)
@@ -21,13 +17,18 @@ CREATE TABLE IF NOT EXISTS ru.idsreges_contract (
     id_rezultat_mesaj  UUID NULL,
     idautor            UUID NULL,
     reges_contract_id  UUID NULL,
+    operation          VARCHAR NULL,          -- <-- added
     status             VARCHAR(50) NOT NULL DEFAULT 'Pending',
     error_message      TEXT NULL,
     created_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- Non-unique indexes
+-- Ensure column exists when table already present
+ALTER TABLE ru.idsreges_contract
+  ADD COLUMN IF NOT EXISTS operation VARCHAR;
+
+-- Non-unique indexes (keep)
 CREATE INDEX IF NOT EXISTS ix_idsreges_contract_id_raspuns
   ON ru.idsreges_contract (id_raspuns_mesaj);
 CREATE INDEX IF NOT EXISTS ix_idsreges_contract_id_rezultat
@@ -36,8 +37,14 @@ CREATE INDEX IF NOT EXISTS ix_idsreges_contract_reges_id
   ON ru.idsreges_contract (reges_contract_id);
 CREATE INDEX IF NOT EXISTS ix_idsreges_contract_status
   ON ru.idsreges_contract (status);
-CREATE INDEX IF NOT EXISTS ix_idsreges_contract_idcontract
-  ON ru.idsreges_contract (idcontract);
+
+-- Ensure idcontract is UNIQUE only when reges_contract_id IS NOT NULL
+DROP INDEX IF EXISTS ru.ix_idsreges_contract_idcontract;
+DROP INDEX IF EXISTS ru.uq_idsreges_contract_idcontract;
+DROP INDEX IF EXISTS ru.uq_idsreges_contract_idcontract_nonnull;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_idsreges_contract_idcontract_when_reges_notnull
+  ON ru.idsreges_contract (idcontract)
+  WHERE reges_contract_id IS NOT NULL;
 
 -- updated_at trigger
 CREATE OR REPLACE FUNCTION ru.set_updated_at_idsreges_contract()

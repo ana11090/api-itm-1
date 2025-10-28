@@ -58,6 +58,8 @@ namespace api_itm.Infrastructure
             // --- UserControls (transient is usually best)
             services.AddTransient<ControlerAddEmployeeView>();
             services.AddTransient<ControlerModifyEmployeeView>();
+            services.AddTransient<ControlerDeleteEmployeeView>();//ControlerDeleteEmployeeView
+            services.AddTransient<ControlerrCorrectionContractsView>();//ControlerrCorrectionContractsView
             services.AddTransient<ControlerCorrectionEmployeeView>();//ControlerCorrectionEmployeeView
             services.AddTransient<ControlerAddContractsView>();
             services.AddTransient<ControlerModificationContractsView>();

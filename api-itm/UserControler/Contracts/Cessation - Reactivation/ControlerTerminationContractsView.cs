@@ -235,7 +235,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
                 EnsureSpecialColumns();
                 RenumberRows();
                 UpdateCounts();
-                ApplyRowColorsByRegesId();
+                 
             };
 
             // // search
@@ -705,7 +705,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
             await LoadContractsAsync();
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
 
         }
         // Build and show a detailed summary. Falls back to a scrollable dialog if long.
@@ -820,7 +820,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
 
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
 
             foreach (DataGridViewColumn c in dgvContracteSuspendate.Columns)
                 c.HeaderCell.SortGlyphDirection = SortOrder.None;
@@ -1022,7 +1022,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
             _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
         }
 
         /// <summary>
@@ -1056,7 +1056,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
                 EnsureSpecialColumns();
                 RenumberRows();
                 UpdateCounts();
-                ApplyRowColorsByRegesId();
+                 
             };
 
             dgvContracteSuspendate.Sorted += (_, __) => RenumberRows();
@@ -1127,7 +1127,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
             // păstrăm UX-ul existent
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
         }
 
         private int? GetIdContractFromRow(DataGridViewRow row)
@@ -1680,38 +1680,7 @@ namespace api_itm.UserControler.Contracts.Cessation___Reactivation
         }
 
 
-        private void ApplyRowColorsByRegesId()
-        {
-            if (dgvContracteSuspendate?.Columns == null || dgvContracteSuspendate.Rows.Count == 0) return;
-
-            // find the idContract column
-            DataGridViewColumn idCol = dgvContracteSuspendate.Columns
-                .Cast<DataGridViewColumn>()
-                .FirstOrDefault(c =>
-                    string.Equals(c.DataPropertyName, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(c.Name, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase));
-
-            if (idCol == null) return;
-
-            var green = Color.FromArgb(230, 255, 230);
-            var greenSel = Color.FromArgb(210, 240, 210);
-            var red = Color.FromArgb(255, 235, 235);
-            var redSel = Color.FromArgb(240, 210, 210);
-
-            foreach (DataGridViewRow row in dgvContracteSuspendate.Rows)
-            {
-                if (row.IsNewRow) continue;
-
-                var raw = row.Cells[idCol.Index].Value?.ToString();
-                if (int.TryParse(raw, out var contractId))
-                {
-                    bool hasReges = _contractsWithRegesId.Contains(contractId);
-                    row.DefaultCellStyle.BackColor = hasReges ? green : red;
-                    row.DefaultCellStyle.SelectionBackColor = hasReges ? greenSel : redSel;
-                }
-            }
-        }
-
+       
         [Conditional("DEBUG")]
         private void ShowJsonPreview(string json)
         {

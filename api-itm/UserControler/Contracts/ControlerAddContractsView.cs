@@ -161,8 +161,7 @@ namespace api_itm.UserControler.Contracts
             {
                 EnsureSpecialColumns();
                 RenumberRows();
-                UpdateCounts();
-                ApplyRowColorsByRegesId();
+                UpdateCounts(); 
             };
 
             dgvAddContracts.Sorted += (_, __) => RenumberRows();
@@ -298,8 +297,7 @@ namespace api_itm.UserControler.Contracts
             {
                 EnsureSpecialColumns();
                 RenumberRows();
-                UpdateCounts();
-                ApplyRowColorsByRegesId();
+                UpdateCounts(); 
             };
 
             // // search
@@ -500,8 +498,7 @@ namespace api_itm.UserControler.Contracts
             //   Reload the contracts grid  
             await LoadContractsAsync();
             RenumberRows();
-            UpdateCounts(); 
-            ApplyRowColorsByRegesId();
+            UpdateCounts();  
 
         }
 
@@ -1239,9 +1236,7 @@ namespace api_itm.UserControler.Contracts
                     tipContract = typeContractRuCode,
                     tipDurata = typeContractDurationCode,
                     tipNorma = workNormTypeCode,
-
-                    tipLocMunca =  "Mobil", //to be completed to do
-                    judetLocMunca = "CL",  //To DO 
+                     
                     regesEmployeeId = it.RegesEmployeeId  
                 });
             }
@@ -1254,8 +1249,7 @@ namespace api_itm.UserControler.Contracts
             _rowsData = rows;
             _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
-            UpdateCounts();
-            ApplyRowColorsByRegesId();
+            UpdateCounts(); 
         }
 
         private void ApplySearchFilter()
@@ -1305,8 +1299,7 @@ namespace api_itm.UserControler.Contracts
             _rowsData = list;
 
             RenumberRows();
-            UpdateCounts();
-            ApplyRowColorsByRegesId();
+            UpdateCounts(); 
 
             foreach (DataGridViewColumn c in dgvAddContracts.Columns)
                 c.HeaderCell.SortGlyphDirection = SortOrder.None;
@@ -1394,8 +1387,7 @@ namespace api_itm.UserControler.Contracts
 
             // păstrăm UX-ul existent
             RenumberRows();
-            UpdateCounts();
-            ApplyRowColorsByRegesId();
+            UpdateCounts(); 
         }
 
         private async Task PreviewJsonForContract(int idContract)
@@ -1604,6 +1596,26 @@ namespace api_itm.UserControler.Contracts
                     .Select(n => n.WorkNormTypeCode)
                     .FirstOrDefaultAsync();
 
+                // This entire block is a workaround for the incorrect mapping.
+                var workTypeId = await _db.ContractsRu.AsNoTracking()
+                    .Where(x => x.IdContract == c.IdContract)
+                    .Select(x => x.WorkTypeID) // This should be the correct property name
+                    .FirstOrDefaultAsync();
+
+                Debug.WriteLine($"[DEBUG] IdContract={c.IdContract}  WorkTypeID (DB)={workTypeId?.ToString() ?? "<null>"}  (entity)={c.WorkTypeID?.ToString() ?? "<null>"}");
+
+                // The code then uses the manually fetched 'workTypeId' variable instead of the broken 'c.WorkTypeID'
+                var typeWorkLocation = await _db.WorkLocationType.AsNoTracking()
+                    .Where(w => w.WorkLocationTypeId == workTypeId)
+                    .Select(w => w.WorkLocationTypeCode)
+                    .FirstOrDefaultAsync();
+
+
+                var coutyWorkLocation = await _db.County
+                 .Where(n => n.CountyId == c.CountyID)
+                 .Select(n => n.CountyCode)
+                 .FirstOrDefaultAsync();
+
                 // Time window
                 DateTime? inceputInterval = null, sfarsitInterval = null;
                 if (c.StartDate.HasValue && c.StartHour.HasValue)
@@ -1615,6 +1627,13 @@ namespace api_itm.UserControler.Contracts
                 int? salariu = c.GrossSalary.HasValue
                     ? Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
                     : (int?)null;
+
+                // decide if county is required when TipLocMunca == 2 (Fix)
+                //var needCounty = (c.WorkTypeID == 2)                                  // numeric flag on contract
+                //                 || string.Equals(typeWorkLocation, "2")              // code "2"
+                //                 || string.Equals(typeWorkLocation, "Fix", StringComparison.OrdinalIgnoreCase); // code text
+
+                var judetLocMunca = coutyWorkLocation != null ? coutyWorkLocation : null;
 
                 rows.Add(new ContractGridRow
                 {
@@ -1643,7 +1662,9 @@ namespace api_itm.UserControler.Contracts
                     TipDurata = typeContractDurationCode,
                     TipNorma = workNormTypeCode,
 
-                    TipLocMunca = c.Headquarters,
+                    TipLocMunca = typeWorkLocation,
+                    JudetLocMunca = judetLocMunca, 
+
                     RegesEmployeeId = item.RegesEmployeeId
                 });
             }
@@ -1753,9 +1774,31 @@ namespace api_itm.UserControler.Contracts
                .FirstOrDefaultAsync();
 
             var worktypelocationtype = await _db.WorkLocationType
-              .Where(wlt => wlt.WorkLocationTypeId == c.WorkTypeID)
-              .Select(wlt => wlt.WorkLocationTypeCode)
+              .Where(WorkLocationType => WorkLocationType.WorkLocationTypeId == c.WorkTypeID)
+              .Select(WorkLocationType => WorkLocationType.WorkLocationTypeCode)
               .FirstOrDefaultAsync();
+
+            // DEBUG: show the exact SQL EF will run
+            var wtSql = _db.ContractsRu.AsNoTracking()
+                .Where(x => x.IdContract == c.IdContract)
+                .Select(x => x.WorkTypeID)
+                .TagWith("DEBUG WorkTypeID for contract")
+                .ToQueryString();
+            Debug.WriteLine(wtSql);
+
+            // Always read fresh WorkTypeID from DB (avoid stale 0)
+            var workTypeId = await _db.ContractsRu.AsNoTracking()
+                .Where(x => x.IdContract == c.IdContract)
+                .Select(x => x.WorkTypeID)
+                .FirstOrDefaultAsync();
+
+            Debug.WriteLine($"[DEBUG] IdContract={c.IdContract}  WorkTypeID (DB)={workTypeId?.ToString() ?? "<null>"}  (entity)={c.WorkTypeID?.ToString() ?? "<null>"}");
+
+            // Resolve TipLocMunca from lookup using the fresh id
+            var typeWorkLocation = await _db.WorkLocationType.AsNoTracking()
+                .Where(w => w.WorkLocationTypeId == workTypeId)
+                .Select(w => w.WorkLocationTypeCode)
+                .FirstOrDefaultAsync();
 
             var versionCor = await _db.RegesCor
               .Where(cor => cor.Code.ToString() == c.OccupationCode)
@@ -1771,6 +1814,8 @@ namespace api_itm.UserControler.Contracts
           .Where(lo => lo.CountyCityId.ToString() == c.CityId.ToString())
           .Select(lo => (int?)lo.SirutaCode)
           .FirstOrDefaultAsync();
+
+            
 
             // Returns null if any hop has no match
             int cityName = await (
@@ -1788,7 +1833,21 @@ namespace api_itm.UserControler.Contracts
                 select ci.SirutaCode
             ).FirstOrDefaultAsync();
 
+            //var typeWorkLocation = await _db.WorkLocationType
+            //   .Where(n => n.WorkLocationTypeId == c.WorkTypeID)
+            //   .Select(n => n.WorkLocationTypeName)
+            //   .FirstOrDefaultAsync();
 
+
+            var typeWorkLocationCode = await _db.WorkLocationType
+                .Where(n => n.WorkLocationTypeId == c.WorkTypeID)
+                .Select(n => n.WorkLocationTypeId)
+                .FirstOrDefaultAsync();
+
+            var coutyWorkLocation = await _db.County
+             .Where(n => n.CountyId == c.CountyID)
+             .Select(n => n.CountyCode)
+             .FirstOrDefaultAsync();
 
         
             Debug.WriteLine("cityName" + cityName);
@@ -1916,7 +1975,7 @@ namespace api_itm.UserControler.Contracts
                 TipContract = typeContractRuCode,
                 TipDurata = typeContractDurationCode,
                 TipNorma = workNormTypeCode,
-                TipLocMunca = worktypelocationtype,  
+                TipLocMunca = typeWorkLocation,  
                 JudetLocMunca = countyCode,
                 LocalitateLocMunca = (worktypelocationtype == "Fix")
     ? new Localitate { CodSiruta = cityName }   // cityName is your int SIRUTA (e.g., 54984)
@@ -2042,13 +2101,13 @@ namespace api_itm.UserControler.Contracts
             mustValidate = _debugValidate; // DEBUG: controlled by checkbox
 #endif
 
-            if (mustValidate)
-            {
-                var (ok, missing) = ValidateRequiredForContract(payload.Continut);
-                if (!ok)
-                    throw new InvalidOperationException(
-                        "Câmpuri obligatorii lipsă: " + string.Join(", ", missing));
-            }
+            //if (mustValidate)
+            //{
+            //    var (ok, missing) = ValidateRequiredForContract(payload.Continut);
+            //    if (!ok)
+            //        throw new InvalidOperationException(
+            //            "Câmpuri obligatorii lipsă: " + string.Join(", ", missing));
+            //}
 
 
             // 2) Serialize after validation (unchanged)
@@ -2141,38 +2200,7 @@ namespace api_itm.UserControler.Contracts
             return SessionState.Tokens.AccessToken;
         }
 
-        private void ApplyRowColorsByRegesId()
-        {
-            if (dgvAddContracts?.Columns == null || dgvAddContracts.Rows.Count == 0) return;
-
-            // find the idContract column
-            DataGridViewColumn idCol = dgvAddContracts.Columns
-                .Cast<DataGridViewColumn>()
-                .FirstOrDefault(c =>
-                    string.Equals(c.DataPropertyName, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(c.Name, ContractIdPropertyName, StringComparison.OrdinalIgnoreCase));
-
-            if (idCol == null) return;
-
-            var green = Color.FromArgb(230, 255, 230);
-            var greenSel = Color.FromArgb(210, 240, 210);
-            var red = Color.FromArgb(255, 235, 235);
-            var redSel = Color.FromArgb(240, 210, 210);
-
-            foreach (DataGridViewRow row in dgvAddContracts.Rows)
-            {
-                if (row.IsNewRow) continue;
-
-                var raw = row.Cells[idCol.Index].Value?.ToString();
-                if (int.TryParse(raw, out var contractId))
-                {
-                    bool hasReges = _contractsWithRegesId.Contains(contractId);
-                    row.DefaultCellStyle.BackColor = hasReges ? green : red;
-                    row.DefaultCellStyle.SelectionBackColor = hasReges ? greenSel : redSel;
-                }
-            }
-        }
-
+  
         [Conditional("DEBUG")]
         private void ShowJsonPreview(string json)
         {

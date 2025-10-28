@@ -8,8 +8,11 @@ using api_itm.UserControler.Employee;
 using api_itm.UserControler.UserProfile;
 using Microsoft.Extensions.DependencyInjection;
 using System;
+using System.Diagnostics;
 using System.Drawing;
+using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Windows.Forms;
 
 namespace api_itm
@@ -29,8 +32,8 @@ namespace api_itm
         // Helper for managing tabs
         private TabManager _tabManager;
 
-    
-    
+
+
         public MainForm(AppDbContext db)
         {
             InitializeComponent();
@@ -43,15 +46,12 @@ namespace api_itm
             // Do things that require the form to be fully sized
             this.Shown += (_, __) =>
             {
-                // Set final min sizes for each panel
                 _split.Panel1MinSize = 220;
                 _split.Panel2MinSize = 400;
-
-                // Set starting position of the splitter
                 SetSplitDistance(260);
 
-                // Setup tab look/size
-                _tabs.DrawMode = TabDrawMode.Normal;
+                // your current tab setup
+                _tabs.DrawMode = TabDrawMode.Normal;        // will be overridden below
                 _tabs.Appearance = TabAppearance.Normal;
                 _tabs.SizeMode = TabSizeMode.Fixed;
                 _tabs.ItemSize = new Size(120, 32);
@@ -59,16 +59,45 @@ namespace api_itm
                 _tabs.Visible = true;
                 _tabs.BringToFront();
 
+                _tabs.SizeMode = TabSizeMode.Normal;          // ←  (variable width)
+                _tabs.ItemSize = new Size(_tabs.ItemSize.Width, 32);
 
-                // Fill the sidebar with menu items
+                EnableClosableTabs();                         // draw close buttons, handle clicks
+
                 PopulateMenu();
-
-                // Make sure menu is on top of its panel
                 _menu.BringToFront();
+
+
+
             };
 
+            // git hub method update installation kit
             // Keep the splitter position valid when resizing the form
-            this.Resize += (_, __) => SetSplitDistance(_split.SplitterDistance);
+            //this.Resize += (_, __) => SetSplitDistance(_split.SplitterDistance);
+            //WebClient webClient = new WebClient();
+            //var client = new WebClient();
+            //if (!webClient.DownloadString("link to web host/Version.txt").Contains("1.0.0"))
+            //{
+            //    if (MessageBox.Show("A new update is available! Do you want to download it?", "Demo", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            //    {
+            //        try
+            //        {
+            //            if (File.Exists(@".\MyAppSetup.msi")) { File.Delete(@".\MyAppSetup.msi"); }
+            //            client.DownloadFile("link to web host/MyAppSetup.zip", @"MyAppSetup.zip");
+            //            string zipPath = @".\MyAppSetup.zip";
+            //            string extractPath = @".\";
+            //            ZipFile.ExtractToDirectory(zipPath, extractPath);
+            //            Process process = new Process();
+            //            process.StartInfo.FileName = "msiexec.exe";
+            //            process.StartInfo.Arguments = string.Format("/i MyAppSetup.msi");
+            //            this.Close();
+            //            process.Start();
+            //        }
+            //        catch
+            //        {
+            //        }
+            //    }
+            //}
         }
 
         /// <summary>
@@ -155,7 +184,14 @@ namespace api_itm
                             var correctionContractView = Program.App.Services.GetRequiredService<ControlerCorrectionEmployeeView>();
                             correctionContractView.Dock = DockStyle.Fill;
                             return correctionContractView;
-                    }//CorectieSalariat
+                    }//CorectieSalariat 
+                    switch (item)
+                    {
+                        case "Radiere salariat":
+                            var correctionContractView = Program.App.Services.GetRequiredService<ControlerDeleteEmployeeView>();
+                            correctionContractView.Dock = DockStyle.Fill;
+                            return correctionContractView;
+                    }//RadiereSalariat
                     switch (item)
                     {
                         case "Inregistrare contracte":
@@ -166,10 +202,17 @@ namespace api_itm
                     switch (item)
                     {
                         case "Modificare contract":
-                            var contracteView = Program.App.Services.GetRequiredService<ControlerModificationContractsView>();
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerModificationContractsView>(); //ControlerModificationContractsView
                             contracteView.Dock = DockStyle.Fill;
                             return contracteView;
                     }
+                    switch (item)
+                    {
+                        case "Corectie contract":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerrCorrectionContractsView>(); //ControlerrCorrectionContractsView
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }//CorectieContract
                     //Suspendare contract
                     switch (item)
                     {
@@ -253,7 +296,8 @@ namespace api_itm
             ControlSidebarMenu.Leaf("Adaugare date salariati"),
              ControlSidebarMenu.Group("Modificare",
                 ControlSidebarMenu.Leaf("Modificare salariat"),
-                ControlSidebarMenu.Leaf("Corectie salariat")//CorectieSalariat
+                ControlSidebarMenu.Leaf("Corectie salariat"),//CorectieSalariat
+               ControlSidebarMenu.Leaf("Radiere salariat")// RadiereSalariat
             )
         ),
 
@@ -267,9 +311,9 @@ namespace api_itm
                 ControlSidebarMenu.Leaf("Suspendare contract"), //ControlerSuspendedContractsView
                 ControlSidebarMenu.Leaf("Corectie suspendare contract"), // ControlerCorrectionSuspendedContractsView
                 ControlSidebarMenu.Leaf("Modificare suspendare contract"), // ControlerModificationSuspendedContractsView
-                ControlSidebarMenu.Leaf("Anulare suspendare contract"), // ControlerCancelSuspendedContractsView
-                ControlSidebarMenu.Leaf("Incetare suspendare contract"), // ControlerStopedSuspendedContractsView
-                ControlSidebarMenu.Leaf("Corectie incetare suspendare contract") // ControlerCorrectionStopedSuspendedContractsView
+                ControlSidebarMenu.Leaf("Anulare suspendare contract")//, // ControlerCancelSuspendedContractsView
+                //ControlSidebarMenu.Leaf("Incetare suspendare contract"), // ControlerStopedSuspendedContractsView
+                //ControlSidebarMenu.Leaf("Corectie incetare suspendare contract") // ControlerCorrectionStopedSuspendedContractsView
             ),
             ControlSidebarMenu.Group("Incetare - Reactivare",
                 ControlSidebarMenu.Leaf("Incetare contract")
@@ -284,5 +328,174 @@ namespace api_itm
         {
             // Example: WindowState = FormWindowState.Maximized;
         }
+
+        // --- closable tabs support ---
+
+        // Size/margins for the small close button (×) drawn on each tab
+        private const int CloseBtnSize = 12;
+        private const int CloseBtnMargin = 8;
+
+        private void EnableClosableTabs()
+        {
+            _tabs.DrawMode = TabDrawMode.OwnerDrawFixed;   // owner draw
+            _tabs.Padding = new Point(30, 6);             // reserve room for [x] on the right
+            _tabs.Multiline = false;                       // single row (optional)
+
+            _tabs.DrawItem += (s, e) =>
+            {
+                var tab = _tabs.TabPages[e.Index];
+                var bounds = e.Bounds;
+
+                // close box rect (12x12) near right edge of the tab
+                var closeRect = new Rectangle(
+                    bounds.Right - 18,
+                    bounds.Y + (bounds.Height - 12) / 2,
+                    12, 12);
+
+                // text area = tab rect minus left padding and the close box
+                var textRect = new Rectangle(
+                    bounds.X + 8,
+                    bounds.Y,
+                    Math.Max(0, bounds.Width - 8 - (bounds.Right - closeRect.X) - 4),
+                    bounds.Height);
+
+                // draw background (optional: highlight selected)
+                using (var bg = new SolidBrush(_tabs.SelectedIndex == e.Index
+                    ? SystemColors.ControlLightLight
+                    : SystemColors.Control))
+                {
+                    e.Graphics.FillRectangle(bg, bounds);
+                }
+
+                // draw text with ellipsis if still too long
+                TextRenderer.DrawText(
+                    e.Graphics,
+                    tab.Text,
+                    _tabs.Font,
+                    textRect,
+                    SystemColors.ControlText,
+                    TextFormatFlags.VerticalCenter
+                    | TextFormatFlags.Left
+                    | TextFormatFlags.EndEllipsis
+                    | TextFormatFlags.NoPadding);
+
+                // draw the close button
+                ControlPaint.DrawCaptionButton(
+                    e.Graphics,
+                    closeRect,
+                    CaptionButton.Close,
+                    ButtonState.Flat);
+
+                e.DrawFocusRectangle();
+            };
+
+            _tabs.MouseDown += (s, e) =>
+            {
+                for (int i = 0; i < _tabs.TabPages.Count; i++)
+                {
+                    var r = _tabs.GetTabRect(i);
+                    var closeRect = new Rectangle(r.Right - 18, r.Y + (r.Height - 12) / 2, 12, 12);
+                    if (closeRect.Contains(e.Location))
+                    {
+                        var page = _tabs.TabPages[i];
+                        _tabs.TabPages.Remove(page);
+                        page.Dispose();
+                        break;
+                    }
+                }
+            };
+        }
+
+        private Rectangle GetCloseRect(Rectangle tabBounds)
+        {
+            // square on the right side of the tab header
+            var x = tabBounds.Right - CloseBtnMargin - CloseBtnSize;
+            var y = tabBounds.Top + (tabBounds.Height - CloseBtnSize) / 2;
+            return new Rectangle(x, y, CloseBtnSize, CloseBtnSize);
+        }
+
+        private void Tabs_DrawItem(object? sender, DrawItemEventArgs e)
+        {
+            var g = e.Graphics;
+            var page = _tabs.TabPages[e.Index];
+            var r = _tabs.GetTabRect(e.Index);
+
+            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+
+            // Background
+            using (var b = new SolidBrush(selected ? SystemColors.ControlLightLight : SystemColors.Control))
+                g.FillRectangle(b, r);
+
+            // Text (truncate if needed, leaving room for the "×")
+            var closeRect = GetCloseRect(r);
+            var textBounds = Rectangle.Inflate(r, -8, -4);
+            textBounds.Width = closeRect.Left - textBounds.Left - 6;
+
+            TextRenderer.DrawText(
+                g,
+                page.Text,
+                _tabs.Font,
+                textBounds,
+                SystemColors.ControlText,
+                TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+
+            // Close button box (optional light border)
+            using (var p = new Pen(SystemColors.ControlDark))
+                g.DrawRectangle(p, closeRect);
+
+            // Draw the "×" (two diagonal lines)
+            var inset = 3;
+            var x1 = closeRect.Left + inset;
+            var y1 = closeRect.Top + inset;
+            var x2 = closeRect.Right - inset;
+            var y2 = closeRect.Bottom - inset;
+
+            using (var p2 = new Pen(SystemColors.ControlText, 1.5f))
+            {
+                g.DrawLine(p2, x1, y1, x2, y2);
+                g.DrawLine(p2, x1, y2, x2, y1);
+            }
+
+            // Focus rectangle (optional)
+            e.DrawFocusRectangle();
+        }
+
+        private void Tabs_MouseDown(object? sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+
+            for (int i = 0; i < _tabs.TabPages.Count; i++)
+            {
+                var headerRect = _tabs.GetTabRect(i);
+                var closeRect = GetCloseRect(headerRect);
+
+                if (closeRect.Contains(e.Location))
+                {
+                    CloseTabAt(i);
+                    break;
+                }
+            }
+        }
+
+        private void CloseTabAt(int index)
+        {
+            if (index < 0 || index >= _tabs.TabPages.Count) return;
+
+            var page = _tabs.TabPages[index];
+
+            // Dispose hosted content to release resources
+            foreach (Control c in page.Controls) c.Dispose();
+
+            // Remove & dispose the tab page
+            _tabs.TabPages.RemoveAt(index);
+            page.Dispose();
+
+            // Select a sensible tab after close
+            if (_tabs.TabPages.Count > 0)
+            {
+                _tabs.SelectedIndex = Math.Min(index, _tabs.TabPages.Count - 1);
+            }
+        }
+
     }
 }

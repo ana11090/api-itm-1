@@ -1,8 +1,4 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace api_itm.Infrastructure.Db
@@ -12,7 +8,6 @@ namespace api_itm.Infrastructure.Db
         public static Task EnsureAsync(DbContext db)
         {
             var sql = @"
-
 CREATE TABLE IF NOT EXISTS ru.idsreges_contracte_modificari (
     id                 INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     idcontract         INTEGER NULL,
@@ -27,7 +22,10 @@ CREATE TABLE IF NOT EXISTS ru.idsreges_contracte_modificari (
     updated_at         TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
 );
 
--- Helpful indexes (all safe if they already exist)
+-- ensure no uniqueness on idcontract (drop any unique index created earlier)
+DROP INDEX IF EXISTS ru.uq_idsreges_contracte_modif_idcontract_future;
+ALTER TABLE ru.idsreges_contracte_modificari ADD COLUMN IF NOT EXISTS operation VARCHAR(100) NULL;
+
 CREATE INDEX IF NOT EXISTS ix_idsreges_contracte_modif_idcontract
   ON ru.idsreges_contracte_modificari (idcontract);
 
@@ -43,7 +41,6 @@ CREATE INDEX IF NOT EXISTS ix_idsreges_contracte_modif_reges_id
 CREATE INDEX IF NOT EXISTS ix_idsreges_contracte_modif_status
   ON ru.idsreges_contracte_modificari (status);
 
--- updated_at trigger
 CREATE OR REPLACE FUNCTION ru.set_updated_at_idsreges_contracte_modificari()
 RETURNS TRIGGER AS $f$
 BEGIN

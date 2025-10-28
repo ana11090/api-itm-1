@@ -81,6 +81,9 @@ namespace api_itm.Data.Entity.Ru.Contracts.ContractsSuspended
 
         [Column("datainceputprelungire")]
         public DateTime? ExtensionStartDate { get; set; }
+
+        [Column("reges_sincronizare")]
+        public int? RegesSyncVariable { get; set; }
     }
 }
 

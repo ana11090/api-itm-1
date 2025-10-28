@@ -29,6 +29,8 @@ namespace api_itm.UserControler.Contracts.Operations
 {
     public partial class ControlerModificationContractsView : UserControl
     {
+
+        string Operation => "ModificareContract";
         private DataGridView dgvAddContracts;
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
 
@@ -169,8 +171,7 @@ namespace api_itm.UserControler.Contracts.Operations
             {
                 EnsureSpecialColumns();
                 RenumberRows();
-                UpdateCounts();
-                ApplyRowColorsByRegesId();
+                UpdateCounts(); 
             };
 
 
@@ -242,7 +243,7 @@ namespace api_itm.UserControler.Contracts.Operations
             // păstrăm UX-ul existent
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
         }
 
 
@@ -364,7 +365,7 @@ namespace api_itm.UserControler.Contracts.Operations
             var payload = await addView.BuildContractPayloadAsync(idContract);
 
             // 2) Flip operation to modification
-            payload.Header.Operation = "CorectieContract";
+            payload.Header.Operation = Operation;
 
             // 3) Attach REGES contract reference
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -651,7 +652,7 @@ namespace api_itm.UserControler.Contracts.Operations
                 EnsureSpecialColumns();
                 RenumberRows();
                 UpdateCounts();
-                ApplyRowColorsByRegesId();
+                 
             };
 
             // // search
@@ -730,6 +731,7 @@ namespace api_itm.UserControler.Contracts.Operations
                 IdUtilizator = int.TryParse(_session.UserId, out var uid) ? uid : (int?)null,
                 Id_Raspuns_Mesaj = CoerceGuid(sync?.header?.messageId),
                 Id_Rezultat_Mesaj = CoerceGuid(sync?.responseId),
+                Operation = Operation,
                 Status = "Pending",
                 Created_At = DateTime.UtcNow,
                 Updated_At = DateTime.UtcNow
@@ -844,7 +846,7 @@ namespace api_itm.UserControler.Contracts.Operations
             await LoadContractsAsync();
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
 
         }
 
@@ -852,24 +854,27 @@ namespace api_itm.UserControler.Contracts.Operations
         {
             await using var db = await _dbFactory.CreateDbContextAsync();
 
-            // Base set: only contracts whose person already has a REGES employee id
-            var baseRows = await (
+            var baseQuery =
                  from c in db.ContractsRu.AsNoTracking()
                  join rs0 in db.Set<RegesSync>().AsNoTracking()
                      on c.PersonId equals rs0.PersonId into rsj
                  from rs in rsj.DefaultIfEmpty()
-
                  join idc0 in db.Set<RegesContractSync>().AsNoTracking()
                      on c.IdContract equals idc0.IdContract into idcj
                  from idc in idcj.DefaultIfEmpty()
-
-                 where rs != null && rs.RegesEmployeeId != null
-                    && idc != null && idc.RegesContractId != null && c.RegesSyncVariable == 2
+                 where rs != null 
+                 && rs.RegesEmployeeId != null
+                    && idc != null
+                    //&& idc.RegesContractId != null
+                    && c.ContractStatusId == 1
+                    && c.RegesSyncVariable == 2
                  orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
-                 select new { C = c, RegesEmployeeId = rs.RegesEmployeeId }
-).ToListAsync();
+                 select new { C = c, RegesEmployeeId = rs.RegesEmployeeId };
 
-            // contracts that already have a REGES Contract Id (for green/red coloring)
+            System.Diagnostics.Debug.WriteLine(baseQuery.ToQueryString());
+
+            var baseRows = await baseQuery.ToListAsync();
+
             var greenContractIds = await db.Set<RegesContractSync>()
                 .Where(r => r.RegesContractId != null && r.IdContract != null)
                 .Select(r => r.IdContract!.Value)
@@ -878,7 +883,6 @@ namespace api_itm.UserControler.Contracts.Operations
 
             _contractsWithRegesId = new HashSet<int>(greenContractIds);
 
-            // small helper to safely read single values
             async Task<string> Safe(Func<Task<string?>> q)
             {
                 try { return (await q()) ?? ""; } catch { return ""; }
@@ -890,7 +894,6 @@ namespace api_itm.UserControler.Contracts.Operations
             {
                 var c = it.C;
 
-                // Lookups (same logic/fields you already use in BuildContractPayloadAsync)
                 var endDateExceptionCode = RegesJson.FixText(await Safe(() =>
                     db.EndDateExceptions
                       .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
@@ -938,36 +941,26 @@ namespace api_itm.UserControler.Contracts.Operations
                  .Select(tcd => tcd.ContractTypeDurationCode)
                  .FirstOrDefaultAsync();
 
-                Debug.WriteLine("typeContractDurationCode" + typeContractDurationCode);
-
                 var shiftTypeCode = await db.ShiftType
                  .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
                  .Select(shift => shift.ShiftTypeCode)
                  .FirstOrDefaultAsync();
-
-                Debug.WriteLine("shiftTypeCode" + shiftTypeCode);
 
                 var workNormTypeCode = await db.WorkNormType
                  .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
                  .Select(n => n.WorkNormTypeCode)
                  .FirstOrDefaultAsync();
 
-
-                Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
-
-                // Time window
                 DateTime? inceputInterval = null, sfarsitInterval = null;
                 if (c.StartDate.HasValue && c.StartHour.HasValue)
                     inceputInterval = c.StartDate.Value.Date + c.StartHour.Value;
                 if (c.StartDate.HasValue && c.EndHour.HasValue)
                     sfarsitInterval = c.StartDate.Value.Date + c.EndHour.Value;
 
-                // Salary like in payload (rounded to int)
                 int? salariu = c.GrossSalary.HasValue
                     ? Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
                     : (int?)null;
 
-                // Shape grid rows with the SAME names you use in the payload/debug
                 rows.Add(new
                 {
                     idContract = c.IdContract,
@@ -995,8 +988,8 @@ namespace api_itm.UserControler.Contracts.Operations
                     tipDurata = typeContractDurationCode,
                     tipNorma = workNormTypeCode,
 
-                    tipLocMunca = "Mobil", //to be completed to do
-                    judetLocMunca = "CL",  //To DO 
+                   // tipLocMunca = ,
+                   // judetLocMunca = "CL",
                     regesEmployeeId = it.RegesEmployeeId
                 });
             }
@@ -1004,31 +997,32 @@ namespace api_itm.UserControler.Contracts.Operations
             dgvAddContracts.AutoGenerateColumns = true;
             dgvAddContracts.DataSource = rows;
 
-            // keep search/sort helpers working
             _allRowsData = rows;
             _rowsData = rows;
             _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
         }
 
 
         private bool GuardRequiredFieldsOrWarn(ContinutContract cont, int idContract)
         {
-            var (ok, missing) = ValidateRequiredForContract(cont);
-            if (ok) return true;
+            //var (ok, missing) = ValidateRequiredForContract(cont);
+            //if (ok) return true;
 
-            var msg =
-                "Nu pot trimite contractul deoarece lipsesc câmpuri obligatorii:\n" +
-                string.Join("\n", missing.Select(m => " • " + m)) +
-                $"\n\nIdContract: {idContract}\n" +
-                $"DataConsemnare: {(cont?.DataConsemnare?.ToString("yyyy-MM-dd") ?? "<null>")}";
+            //var msg =
+            //    "Nu pot trimite contractul deoarece lipsesc câmpuri obligatorii:\n" +
+            //    string.Join("\n", missing.Select(m => " • " + m)) +
+            //    $"\n\nIdContract: {idContract}\n" +
+            //    $"DataConsemnare: {(cont?.DataConsemnare?.ToString("yyyy-MM-dd") ?? "<null>")}";
 
-            MessageBox.Show(msg, "REGES – câmpuri obligatorii lipsă",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            //MessageBox.Show(msg, "REGES – câmpuri obligatorii lipsă",
+            //    MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-            return false;
+            //return false;
+
+            return true;
         }
 
         private static (bool IsValid, List<string> Missing) ValidateRequiredForContract(ContinutContract cont)
@@ -1201,6 +1195,9 @@ namespace api_itm.UserControler.Contracts.Operations
                 return; // done for this receipt
             }
         }
+
+
+
         static string TryExtractContractIdFallback(JsonElement root)
         {
             string found = null;
@@ -1288,6 +1285,7 @@ string authorIdStr)
 
             var isError = string.Equals(codeType, "ERROR", StringComparison.OrdinalIgnoreCase);
             rec.Status = isError ? "Error" : "Success";
+            rec.Status = isError ? "Error" : "Success";
             rec.Error_Message = isError ? description : null;
 
             if (!string.IsNullOrWhiteSpace(regesRefStr) && Guid.TryParse(regesRefStr, out var regesId))
@@ -1295,6 +1293,9 @@ string authorIdStr)
 
             if (!string.IsNullOrWhiteSpace(authorIdStr) && Guid.TryParse(authorIdStr, out var aid))
                 rec.IdAutor = aid;
+
+            if (!string.IsNullOrWhiteSpace(operation))
+                rec.Operation = operation;
 
             rec.Updated_At = DateTime.UtcNow;
             await db.SaveChangesAsync();
@@ -1435,7 +1436,7 @@ string authorIdStr)
 
             RenumberRows();
             UpdateCounts();
-            ApplyRowColorsByRegesId();
+             
 
             foreach (DataGridViewColumn c in dgvAddContracts.Columns)
                 c.HeaderCell.SortGlyphDirection = SortOrder.None;

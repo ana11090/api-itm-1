@@ -25,7 +25,8 @@ namespace api_itm
         [STAThread]
         static void Main()
         {
-            ApplicationConfiguration.Initialize();
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
 
             var builder = Host.CreateApplicationBuilder();
 

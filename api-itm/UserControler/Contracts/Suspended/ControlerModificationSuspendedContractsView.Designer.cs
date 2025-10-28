@@ -28,8 +28,15 @@
         /// </summary>
         private void InitializeComponent()
         {
-            components = new System.ComponentModel.Container();
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            SuspendLayout();
+            // 
+            // ControlerModificationSuspendedContractsView
+            // 
+            AutoScaleDimensions = new SizeF(8F, 20F);
+            AutoScaleMode = AutoScaleMode.Font;
+            Name = "ControlerModificationSuspendedContractsView";
+            Load += ControlerModificationSuspendedContractsView_Load;
+            ResumeLayout(false);
         }
 
         #endregion

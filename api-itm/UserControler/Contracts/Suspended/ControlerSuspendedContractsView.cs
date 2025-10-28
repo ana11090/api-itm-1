@@ -31,6 +31,7 @@ namespace api_itm.UserControler.Contracts.Suspended
 {
     public partial class ControlerSuspendedContractsView : UserControl
     {
+        string Operation => "SuspendareContract";
         private readonly IDbContextFactory<AppDbContext> _dbFactory;
         private DataGridView dgvContracteSuspendate;
         private Label lblTitle;
@@ -546,14 +547,15 @@ namespace api_itm.UserControler.Contracts.Suspended
 
 
 
+
         private async Task UpdateContractSyncRowAsync(
- string responseId,
- string codeType,
- string code,
- string description,
- string regesRefStr,
- string operation,
- string authorIdStr)
+string responseId,
+string codeType,
+string code,
+string description,
+string regesRefStr,
+string operation,
+string authorIdStr)
         {
             if (!Guid.TryParse(responseId, out var rid))
             {
@@ -563,7 +565,7 @@ namespace api_itm.UserControler.Contracts.Suspended
 
             await using var db = await _dbFactory.CreateDbContextAsync();
 
-            var rec = await db.Set<RegesContractSync>()
+            var rec = await db.Set<RegesSyncModificationContracts>()
                 .FirstOrDefaultAsync(x => x.Id_Rezultat_Mesaj.HasValue && x.Id_Rezultat_Mesaj.Value == rid);
 
             if (rec == null)
@@ -574,6 +576,7 @@ namespace api_itm.UserControler.Contracts.Suspended
 
             var isError = string.Equals(codeType, "ERROR", StringComparison.OrdinalIgnoreCase);
             rec.Status = isError ? "Error" : "Success";
+            rec.Status = isError ? "Error" : "Success";
             rec.Error_Message = isError ? description : null;
 
             if (!string.IsNullOrWhiteSpace(regesRefStr) && Guid.TryParse(regesRefStr, out var regesId))
@@ -581,6 +584,9 @@ namespace api_itm.UserControler.Contracts.Suspended
 
             if (!string.IsNullOrWhiteSpace(authorIdStr) && Guid.TryParse(authorIdStr, out var aid))
                 rec.IdAutor = aid;
+
+            if (!string.IsNullOrWhiteSpace(operation))
+                rec.Operation = operation;
 
             rec.Updated_At = DateTime.UtcNow;
             await db.SaveChangesAsync();
@@ -593,12 +599,13 @@ namespace api_itm.UserControler.Contracts.Suspended
         {
             Debug.WriteLine($"[DB] Save sync receipt for idContract={idContract}, messageId={sync?.header?.messageId}, responseId={sync?.responseId}");
 
-            var rec = new RegesContractSync
+            var rec = new RegesSyncModificationContracts
             {
                 IdContract = idContract,
                 IdUtilizator = int.TryParse(_session.UserId, out var uid) ? uid : (int?)null,
                 Id_Raspuns_Mesaj = CoerceGuid(sync?.header?.messageId),
                 Id_Rezultat_Mesaj = CoerceGuid(sync?.responseId),
+                Operation = Operation,
                 Status = "Pending",
                 Created_At = DateTime.UtcNow,
                 Updated_At = DateTime.UtcNow
@@ -652,7 +659,7 @@ namespace api_itm.UserControler.Contracts.Suspended
                     if (ridGuid.HasValue)
                     {
                         await using var db = await _dbFactory.CreateDbContextAsync();
-                        var rec = await db.Set<RegesContractSync>()
+                        var rec = await db.Set<RegesSyncModificationContracts>()
                             .AsNoTracking()
                             .FirstOrDefaultAsync(x => x.Id_Rezultat_Mesaj.HasValue && x.Id_Rezultat_Mesaj.Value == ridGuid.Value);
 
@@ -705,9 +712,11 @@ namespace api_itm.UserControler.Contracts.Suspended
             await LoadContractsAsync();
             RenumberRows();
             UpdateCounts();
-           // ApplyRowColorsByRegesId();
+             
 
         }
+
+
         // Build and show a detailed summary. Falls back to a scrollable dialog if long.
         private void ShowSendSummary(IReadOnlyList<SendLine> lines, int total)
         {
@@ -872,171 +881,80 @@ namespace api_itm.UserControler.Contracts.Suspended
             await using var db = await _dbFactory.CreateDbContextAsync();
 
             var baseQuery =
-      from c in db.ContractsRu.AsNoTracking()
-      join rs in db.Set<RegesSync>().AsNoTracking()
-          on c.PersonId equals rs.PersonId
-      join cc in db.Set<RegesContractSync>().AsNoTracking()
-          on c.IdContract equals cc.IdContract
-    join cs in db.Set<ContractRuSuspended>().AsNoTracking()
-        on c.IdContract equals cs.ContractId  
-      where rs.RegesEmployeeId != null
-            && cc.RegesContractId != null
-            && c.ContractStatusId == 2
-            && cc.IdContract == cs.ContractId
-           // && c.RegesSyncVariable == 
-      orderby c.IdContract, (c.RecordDate ?? c.ModificationDate ?? c.RevisalTransmitDate)
-      select new { C = c, RegesEmployeeId = rs.RegesEmployeeId, RegesContractId = cc.RegesContractId };
+                from c in db.ContractsRu.AsNoTracking()
+                join rs in db.Set<RegesSync>().AsNoTracking() on c.PersonId equals rs.PersonId
+                join cc in db.Set<RegesContractSync>().AsNoTracking() on c.IdContract equals cc.IdContract
+                join cs in db.ContractRuSuspended.AsNoTracking() on c.IdContract equals cs.ContractId
+                where rs.RegesEmployeeId != null
+                   && cc.RegesContractId != null
+                   && c.ContractStatusId == 2
+                   && cs.RegesSyncVariable == 1 // 1 = contreactul trebuie adaugat in suspendari
+                orderby c.IdContract, cc.Updated_At descending
+                select new { c.IdContract, cc.RegesContractId, cc.Updated_At }
+                into x
+                group x by x.IdContract into g
+                orderby g.Key
+                select g.OrderByDescending(z => z.Updated_At).First();
 
-            //  See generated SQL (params shown as comments)
-            System.Diagnostics.Debug.WriteLine("=== SQL for baseQuery ===");
-            System.Diagnostics.Debug.WriteLine(baseQuery.ToQueryString());
+            System.Diagnostics.Debug.WriteLine(baseQuery.ToQueryString()); // <-- show SQL
 
-            // Execute
             var baseRows = await baseQuery.ToListAsync();
-
-            // contracts that already have a REGES Contract Id (for green/red coloring)
-            var greenContractIds = await db.Set<RegesContractSync>()
-                .Where(r => r.RegesContractId != null && r.IdContract != null)
-                .Select(r => r.IdContract!.Value)
-                .Distinct()
-                .ToListAsync();
-
-            _contractsWithRegesId = new HashSet<int>(greenContractIds);
-
-            // small helper to safely read single values
-            async Task<string> Safe(Func<Task<string?>> q)
-            {
-                try { return (await q()) ?? ""; } catch { return ""; }
-            }
-
             var rows = new List<object>(baseRows.Count);
 
             foreach (var it in baseRows)
             {
-                var c = it.C;
-
-                // Lookups (same logic/fields you already use in BuildContractPayloadAsync)
-                var endDateExceptionCode = RegesJson.FixText(await Safe(() =>
-                    db.EndDateExceptions
-                      .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
-                      .Select(e => e.EndDateExceptionCode)
-                      .FirstOrDefaultAsync()));
-
-                var isState7 = await db.ContractsState
-                    .Where(s => s.ContractStateId == c.ContractStatusId)
-                    .Select(s => s.ContractStateId == 7)
+                var susp = await db.ContractRuSuspended
+                    .AsNoTracking()
+                    .Where(x => x.ContractId == it.IdContract)
+                    .OrderByDescending(x => x.SuspensionStartDate ?? DateTime.MinValue)
+                    .Select(x => new { x.SuspensionStartDate, x.SuspensionEndDate, x.SuspensionLegalGroundId })
                     .FirstOrDefaultAsync();
 
-                var educationLevelCode = await db.FunctionsStat
-                    .Where(f => f.FunctionStatId == c.FunctionStatId)
-                    .Join(db.EducationLevels, f => f.EducationLevelId, e => e.EducationLevelId,
-                          (f, e) => e.EducationLevelCodeReges)
-                    .FirstOrDefaultAsync();
+                DateTime? dataInceput = susp?.SuspensionStartDate
+                    ?? await db.ContractRuSuspended.AsNoTracking()
+                         .Where(x => x.ContractId == it.IdContract && x.SuspensionStartDate != null)
+                         .OrderByDescending(x => x.SuspensionStartDate)
+                         .Select(x => x.SuspensionStartDate)
+                         .FirstOrDefaultAsync();
 
-                var workingScheduleCode = await db.WorkScheduleNorm
-                   .Where(w => w.WorkScheduleId == c.NormId)
-                   .Select(w => w.WorkScheduleCode)
-                   .FirstOrDefaultAsync();
+                DateTime? dataSfarsit = susp?.SuspensionEndDate
+                    ?? await db.ContractRuSuspended.AsNoTracking()
+                         .Where(x => x.ContractId == it.IdContract && x.SuspensionEndDate != null)
+                         .OrderByDescending(x => x.SuspensionEndDate)
+                         .Select(x => x.SuspensionEndDate)
+                         .FirstOrDefaultAsync();
 
-                var workingTimeIntervalCode = await db.WorkingTimeIntervals
-                   .Where(wt => wt.WorkingTimeIntervalId == c.WorkTimeIntervalId)
-                   .Select(wt => wt.WorkingTimeIntervalCode)
-                   .FirstOrDefaultAsync();
+                string temeiLegal = string.Empty;
+                if (susp?.SuspensionLegalGroundId != null)
+                {
+                    temeiLegal = await db.Set<SuspensionLegalGround>()
+                        .AsNoTracking()
+                        .Where(g => g.SuspensionLegalGroundId == susp.SuspensionLegalGroundId)
+                        .Select(g => g.SuspensionLegalGroundCode)
+                        .FirstOrDefaultAsync() ?? string.Empty;
+                }
 
-                var repartizareMunca = await db.WorkDistributionId
-                   .Where(wd => wd.WorkDistributionIdId == c.WorkDistributionId)
-                   .Select(wd => wd.WorkDistributionIdCode)
-                   .FirstOrDefaultAsync();
-
-                var repartizare = await db.WorkTimeAllocation
-                  .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
-                  .Select(wta => wta.WorkTimeAllocationCode)
-                  .FirstOrDefaultAsync();
-
-                var typeContractRuCode = await db.TypeContractRu
-                 .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
-                 .Select(tyr => tyr.TypeContractRuCode)
-                 .FirstOrDefaultAsync();
-
-                var typeContractDurationCode = await db.ContractTypeDuration
-                 .Where(tcd => tcd.ContractTypeDurationId == c.DurationTypeId)
-                 .Select(tcd => tcd.ContractTypeDurationCode)
-                 .FirstOrDefaultAsync();
-
-                Debug.WriteLine("typeContractDurationCode" + typeContractDurationCode);
-
-                var shiftTypeCode = await db.ShiftType
-                 .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
-                 .Select(shift => shift.ShiftTypeCode)
-                 .FirstOrDefaultAsync();
-
-                Debug.WriteLine("shiftTypeCode" + shiftTypeCode);
-
-                var workNormTypeCode = await db.WorkNormType
-                 .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
-                 .Select(n => n.WorkNormTypeCode)
-                 .FirstOrDefaultAsync();
-
-
-                Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
-
-                // Time window
-                DateTime? inceputInterval = null, sfarsitInterval = null;
-                if (c.StartDate.HasValue && c.StartHour.HasValue)
-                    inceputInterval = c.StartDate.Value.Date + c.StartHour.Value;
-                if (c.StartDate.HasValue && c.EndHour.HasValue)
-                    sfarsitInterval = c.StartDate.Value.Date + c.EndHour.Value;
-
-                // Salary like in payload (rounded to int)
-                int? salariu = c.GrossSalary.HasValue
-                    ? Convert.ToInt32(Math.Round(c.GrossSalary.Value, 0, MidpointRounding.AwayFromZero))
-                    : (int?)null;
-
-                // Shape grid rows with the SAME names you use in the payload/debug
                 rows.Add(new
                 {
-                    idContract = c.IdContract,
-                    numarContract = c.ContractNumber,
-                    dataConsemnare = c.RecordDate,
-                    dataContract = c.ContractDate,
-                    dataInceputContract = c.StartDate,
-
-                    exceptieDataSfarsit = string.IsNullOrWhiteSpace(endDateExceptionCode) ? null : endDateExceptionCode,
-                    radiat = isState7,
-                    salariu = salariu,
-                    moneda = "RON",
-                    nivelStudii = educationLevelCode,
-
-                    norma = workingScheduleCode,
-                    durata = c.ContractDuration,
-                    intervalTimp = workingTimeIntervalCode,
-                    repartizare = repartizareMunca,
-                    repartizareMunca = repartizare,
-                    inceputInterval,
-                    sfarsitInterval,
-                    tipTura = shiftTypeCode,
-
-                    tipContract = typeContractRuCode,
-                    tipDurata = typeContractDurationCode,
-                    tipNorma = workNormTypeCode,
-
-                    tipLocMunca = "Mobil", //to be completed to do
-                    judetLocMunca = "CL",  //To DO 
-                    regesEmployeeId = it.RegesEmployeeId
+                    idContract = it.IdContract,
+                    referintaContractId = it.RegesContractId?.ToString("D") ?? string.Empty,
+                    actiuneTip = "actiuneSuspendare",
+                    dataInceput,
+                    dataSfarsit,
+                    temeiLegal
                 });
             }
 
             dgvContracteSuspendate.AutoGenerateColumns = true;
             dgvContracteSuspendate.DataSource = rows;
 
-            // keep search/sort helpers working
             _allRowsData = rows;
             _rowsData = rows;
             _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
             UpdateCounts();
-            //ApplyRowColorsByRegesId();
         }
+
 
         /// <summary>
         /// Wires up all DataGridView behaviors for dgvContracteSuspendate.
