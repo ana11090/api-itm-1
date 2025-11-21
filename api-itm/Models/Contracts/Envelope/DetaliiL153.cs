@@ -10,7 +10,7 @@ namespace api_itm.Models.Contracts.Envelope
 
     public sealed class DetaliiL153
     {
-        [JsonPropertyName("anexaL153")] public string? AnexaL153 { get; set; }
+        [JsonPropertyName("anexaL153")] public int? AnexaL153 { get; set; }
         [JsonPropertyName("capitolL153")] public string? CapitolL153 { get; set; }
         [JsonPropertyName("literaL153")] public string? LiteraL153 { get; set; }
         [JsonPropertyName("clasificareSuplimentaraL153")] public string? ClasificareSuplimentaraL153 { get; set; }

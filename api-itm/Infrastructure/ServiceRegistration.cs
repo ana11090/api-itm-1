@@ -66,6 +66,7 @@ namespace api_itm.Infrastructure
             services.AddTransient<ControlerTerminationContractsView>();
                 //Suspendari Contracte
             services.AddTransient<ControlerSuspendedContractsView>();
+            services.AddTransient<ControlerSuspendedMedicalLeaveView>();//ControlerSuspendedMedicalLeaveView
             services.AddTransient<ControlerCorrectionSuspendedContractsView>();
             services.AddTransient<ControlerModificationSuspendedContractsView>();
             services.AddTransient<ControlerCancelSuspendedContractsView>(); 

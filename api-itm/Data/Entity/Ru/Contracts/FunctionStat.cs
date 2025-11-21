@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -8,6 +9,7 @@ namespace api_itm.Data.Entity.Ru.Contracts
 {
     public class FunctionStat
     {
+        [Key]
         public int FunctionStatId { get; set; }          // idstatfunctii
         public string? UnitCode { get; set; }            // codunitate
         public int? FunctionTypeId { get; set; }         // idtipfunctie

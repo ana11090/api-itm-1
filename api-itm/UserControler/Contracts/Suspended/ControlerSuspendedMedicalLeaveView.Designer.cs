@@ -1,6 +1,6 @@
-﻿namespace api_itm.UserControler.Contracts
+﻿namespace api_itm.UserControler.Contracts.Suspended
 {
-    partial class ControlerAddContractsView
+    partial class ControlerSuspendedMedicalLeaveView
     {
         /// <summary> 
         /// Required designer variable.
@@ -28,34 +28,17 @@
         /// </summary>
         private void InitializeComponent()
         {
-            dgvAddContracts = new DataGridView();
-            ((System.ComponentModel.ISupportInitialize)dgvAddContracts).BeginInit();
             SuspendLayout();
             // 
-            // dgvAddContracts
-            // 
-            dgvAddContracts.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dgvAddContracts.Location = new Point(26, 25);
-            dgvAddContracts.Name = "dgvAddContracts";
-            dgvAddContracts.RowHeadersWidth = 51;
-            dgvAddContracts.Size = new Size(356, 214);
-            dgvAddContracts.TabIndex = 0;
-            dgvAddContracts.CellContentClick += dgvAddContracts_CellContentClick_1;
-            // 
-            // ControlerAddContractsView
+            // ControlerSuspendedMedicalLeaveView
             // 
             AutoScaleDimensions = new SizeF(8F, 20F);
             AutoScaleMode = AutoScaleMode.Font;
-            Controls.Add(dgvAddContracts);
-            Name = "ControlerAddContractsView";
-            Size = new Size(970, 408);
-            Load += ControlerAddContractsView_Load;
-            ((System.ComponentModel.ISupportInitialize)dgvAddContracts).EndInit();
+            Name = "ControlerSuspendedMedicalLeaveView";
+            Load += ControlerSuspendedMedicalLeaveView_Load;
             ResumeLayout(false);
         }
 
         #endregion
-
-        private DataGridView dgvAddContracts;
     }
 }

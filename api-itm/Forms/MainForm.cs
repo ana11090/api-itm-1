@@ -223,6 +223,13 @@ namespace api_itm
                     }
                     switch (item)
                     {
+                        case "Suspendare - concediu medical":
+                            var contracteView = Program.App.Services.GetRequiredService<ControlerSuspendedMedicalLeaveView>();
+                            contracteView.Dock = DockStyle.Fill;
+                            return contracteView;
+                    }//ControlerSuspendedMedicalLeaveView
+                    switch (item)
+                    {
                         case "Corectie suspendare contract":
                             var contracteView = Program.App.Services.GetRequiredService<ControlerCorrectionSuspendedContractsView>();
                             contracteView.Dock = DockStyle.Fill;
@@ -309,6 +316,7 @@ namespace api_itm
             ),
             ControlSidebarMenu.Group("Suspendare",
                 ControlSidebarMenu.Leaf("Suspendare contract"), //ControlerSuspendedContractsView
+                ControlSidebarMenu.Leaf("Suspendare - concediu medical"), //ControlerSuspendedMedicalLeaveView
                 ControlSidebarMenu.Leaf("Corectie suspendare contract"), // ControlerCorrectionSuspendedContractsView
                 ControlSidebarMenu.Leaf("Modificare suspendare contract"), // ControlerModificationSuspendedContractsView
                 ControlSidebarMenu.Leaf("Anulare suspendare contract")//, // ControlerCancelSuspendedContractsView

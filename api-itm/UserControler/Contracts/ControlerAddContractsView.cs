@@ -1,4 +1,6 @@
 ﻿using api_itm.Data.Configurations.Salary;
+using api_itm.Data.Entity.Ru.Contracts;
+using api_itm.Data.Entity.Ru.Contracts.api_itm.Data.Entity.Ru.Lookups;
 using api_itm.Data.Entity.Ru.Contracts.Work;
 using api_itm.Data.Entity.Ru.Reges;      // CancellationToken
 using api_itm.Data.Entity.Ru.Salary;
@@ -79,7 +81,7 @@ namespace api_itm.UserControler.Contracts
         private const string ConsumerId = "winforms-dev-1"; // sau string.Empty pentru implicit
 
         private const string PollMessageUrl = "api/Status/PollMessage";
-         
+
         // sort state + cache for current rows (anonymous type)
         private object _rowsData;                 // List<anon>
         private Type _rowItemType;               // anon item type
@@ -161,7 +163,7 @@ namespace api_itm.UserControler.Contracts
             {
                 EnsureSpecialColumns();
                 RenumberRows();
-                UpdateCounts(); 
+                UpdateCounts();
             };
 
             dgvAddContracts.Sorted += (_, __) => RenumberRows();
@@ -297,7 +299,7 @@ namespace api_itm.UserControler.Contracts
             {
                 EnsureSpecialColumns();
                 RenumberRows();
-                UpdateCounts(); 
+                UpdateCounts();
             };
 
             // // search
@@ -498,7 +500,7 @@ namespace api_itm.UserControler.Contracts
             //   Reload the contracts grid  
             await LoadContractsAsync();
             RenumberRows();
-            UpdateCounts();  
+            UpdateCounts();
 
         }
 
@@ -575,7 +577,7 @@ namespace api_itm.UserControler.Contracts
             }
         }
 
- 
+
         private static Guid? CoerceGuid(object? value)
         {
             if (value is null) return null;
@@ -668,14 +670,14 @@ namespace api_itm.UserControler.Contracts
                 return; // done for this receipt
             }
         }
-            private async Task UpdateContractSyncRowAsync(
-    string responseId,
-    string codeType,
-    string code,
-    string description,
-    string regesRefStr,
-    string operation,
-    string authorIdStr)
+        private async Task UpdateContractSyncRowAsync(
+string responseId,
+string codeType,
+string code,
+string description,
+string regesRefStr,
+string operation,
+string authorIdStr)
         {
             if (!Guid.TryParse(responseId, out var rid))
             {
@@ -713,63 +715,63 @@ namespace api_itm.UserControler.Contracts
 
 
         static string TryExtractContractIdFallback(JsonElement root)
+        {
+            string found = null;
+
+            void TryPickId(JsonElement obj, ref string target)
             {
-                string found = null;
-
-                void TryPickId(JsonElement obj, ref string target)
+                foreach (var p in obj.EnumerateObject())
                 {
-                    foreach (var p in obj.EnumerateObject())
+                    if ((p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) || p.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)) &&
+                        p.Value.ValueKind == JsonValueKind.String)
                     {
-                        if ((p.Name.Equals("Id", StringComparison.OrdinalIgnoreCase) || p.Name.EndsWith("Id", StringComparison.OrdinalIgnoreCase)) &&
-                            p.Value.ValueKind == JsonValueKind.String)
+                        var s = p.Value.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) { target = s; return; }
+                    }
+                }
+            }
+
+            void Scan(JsonElement el)
+            {
+                if (found != null) return;
+                switch (el.ValueKind)
+                {
+                    case JsonValueKind.Object:
+                        foreach (var prop in el.EnumerateObject())
                         {
-                            var s = p.Value.GetString();
-                            if (!string.IsNullOrWhiteSpace(s)) { target = s; return; }
+                            var lname = prop.Name.ToLowerInvariant();
+
+                            if (lname.Contains("referinta") && prop.Value.ValueKind == JsonValueKind.Object)
+                            {
+                                foreach (var rp in prop.Value.EnumerateObject())
+                                    if (rp.Name.ToLowerInvariant().Contains("contract") && rp.Value.ValueKind == JsonValueKind.Object)
+                                        TryPickId(rp.Value, ref found);
+                            }
+                            if (found != null) break;
+
+                            if (lname.Contains("contract") && prop.Value.ValueKind == JsonValueKind.Object)
+                                TryPickId(prop.Value, ref found);
+                            if (found != null) break;
+
+                            Scan(prop.Value);
+                            if (found != null) break;
                         }
-                    }
+                        break;
+
+                    case JsonValueKind.Array:
+                        foreach (var item in el.EnumerateArray())
+                        {
+                            Scan(item);
+                            if (found != null) break;
+                        }
+                        break;
                 }
+            }
 
-                void Scan(JsonElement el)
-                {
-                    if (found != null) return;
-                    switch (el.ValueKind)
-                    {
-                        case JsonValueKind.Object:
-                            foreach (var prop in el.EnumerateObject())
-                            {
-                                var lname = prop.Name.ToLowerInvariant();
+            try { Scan(root); } catch { }
+            return found;
+        }
 
-                                if (lname.Contains("referinta") && prop.Value.ValueKind == JsonValueKind.Object)
-                                {
-                                    foreach (var rp in prop.Value.EnumerateObject())
-                                        if (rp.Name.ToLowerInvariant().Contains("contract") && rp.Value.ValueKind == JsonValueKind.Object)
-                                            TryPickId(rp.Value, ref found);
-                                }
-                                if (found != null) break;
-
-                                if (lname.Contains("contract") && prop.Value.ValueKind == JsonValueKind.Object)
-                                    TryPickId(prop.Value, ref found);
-                                if (found != null) break;
-
-                                Scan(prop.Value);
-                                if (found != null) break;
-                            }
-                            break;
-
-                        case JsonValueKind.Array:
-                            foreach (var item in el.EnumerateArray())
-                            {
-                                Scan(item);
-                                if (found != null) break;
-                            }
-                            break;
-                    }
-                }
-
-                try { Scan(root); } catch { }
-                return found;
-          }
-       
 
         private void EnsureSpecialColumns()
         {
@@ -1194,7 +1196,7 @@ namespace api_itm.UserControler.Contracts
                  .Select(n => n.WorkNormTypeCode)
                  .FirstOrDefaultAsync();
 
-              
+
                 Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
 
                 // Time window
@@ -1236,8 +1238,8 @@ namespace api_itm.UserControler.Contracts
                     tipContract = typeContractRuCode,
                     tipDurata = typeContractDurationCode,
                     tipNorma = workNormTypeCode,
-                     
-                    regesEmployeeId = it.RegesEmployeeId  
+
+                    regesEmployeeId = it.RegesEmployeeId
                 });
             }
 
@@ -1249,7 +1251,7 @@ namespace api_itm.UserControler.Contracts
             _rowsData = rows;
             _rowItemType = rows.Count > 0 ? rows[0].GetType() : null;
 
-            UpdateCounts(); 
+            UpdateCounts();
         }
 
         private void ApplySearchFilter()
@@ -1299,7 +1301,7 @@ namespace api_itm.UserControler.Contracts
             _rowsData = list;
 
             RenumberRows();
-            UpdateCounts(); 
+            UpdateCounts();
 
             foreach (DataGridViewColumn c in dgvAddContracts.Columns)
                 c.HeaderCell.SortGlyphDirection = SortOrder.None;
@@ -1387,7 +1389,7 @@ namespace api_itm.UserControler.Contracts
 
             // păstrăm UX-ul existent
             RenumberRows();
-            UpdateCounts(); 
+            UpdateCounts();
         }
 
         private async Task PreviewJsonForContract(int idContract)
@@ -1663,7 +1665,7 @@ namespace api_itm.UserControler.Contracts
                     TipNorma = workNormTypeCode,
 
                     TipLocMunca = typeWorkLocation,
-                    JudetLocMunca = judetLocMunca, 
+                    JudetLocMunca = judetLocMunca,
 
                     RegesEmployeeId = item.RegesEmployeeId
                 });
@@ -1672,7 +1674,132 @@ namespace api_itm.UserControler.Contracts
             return rows;
         }
 
+        private async Task<Models.Contracts.L153Info> ComputeL153FromRulesAsync(AppDbContext db, ContractsRu c)
+        {
+            // guard: must have function stat id
+            if (c.FunctionStatId == null) return new Models.Contracts.L153Info();
 
+            // 1) Pull all keys AND L153 detail fields from the DB
+            //    !!!! YOU MUST CORRECT THE COLUMN NAMES LIKE 'p.l153_spec_functie_code' !!!!
+            var k = await db.L153Keys.FromSqlInterpolated($@"
+    select
+        p.codcategoriepost,
+        sf.idtipfunctie,
+        coalesce(fc.idlegaturafunctiereges, p.idlegaturafunctiereges) as idlegaturafunctiereges,
+        sf.idnivelstudii,
+        gp.idgradprofesionalgrupat,
+        per.idtransavechevechimeinv,
+        per.idtransavechimeinv,
+
+        -- === ADD THESE SELECTIONS ===
+        -- (Correct the DB column names, e.g., 'p.l153_spec_functie_code')
+        p.L153SpecFunctieCode         as L153SpecFunctieCode,
+        p.L153StructuraCode           as L153StructuraCode,
+        p.L153SpecStructuraCode       as L153SpecStructuraCode,
+        gp.L153GradProfCode           as L153GradProfCode,    -- (Maybe this is on 'gp'?)
+        gp.L153GradatieCode           as L153GradatieCode,     -- (Maybe this is on 'gp'?)
+        p.L153AltaFunctieName         as L153AltaFunctieName,
+        p.L153ExplicatieFunctie       as L153ExplicatieFunctie,
+        p.L153AltGradProfText         as L153AltGradProfText
+
+    from ru.statfunctii sf
+    left join ru.post p on p.codpost = sf.codpost
+    left join ru.functie_conducere fc on fc.idfunctieconducere = sf.idfunctieconducere
+    left join ru.gradprofesional gp on gp.idgradprofesional = sf.idgradprofesional
+    left join ru.persoana per on per.idpersoana = {c.PersonId}
+    where sf.idstatfunctii = {c.FunctionStatId}
+    limit 1
+    ").AsNoTracking().FirstOrDefaultAsync();
+
+            if (k is null) return new Models.Contracts.L153Info();
+
+            // 2) Apply the exact business rules (this part is unchanged)
+            int? codCategoriePost = k.codcategoriepost;
+            int? idTipFunctie = k.idtipfunctie;
+            int? idLegReges = k.idlegaturafunctiereges;
+            int? idNivelStudii = k.idnivelstudii;
+            int? idGradGrp = k.idgradprofesionalgrupat;
+            int? idTransaVeche = k.idtransavechevechimeinv;
+            int? idTransa = k.idtransavechimeinv;
+
+            if (idTipFunctie == 1) // conducere
+            {
+                idGradGrp = 12;
+                idTransaVeche = 0; idTransa = 0;
+            }
+            else if (idTipFunctie == 2) // executie
+            {
+                if (codCategoriePost == 1) // didactic
+                {
+                    if ((idLegReges == 22) && (idTransaVeche == 1) && (idTransa == 1))
+                    {
+                        idTransaVeche = 2;
+                        idTransa = 2;
+                    }
+                }
+                else if (codCategoriePost == 2 || codCategoriePost == 4) // didactic_aux / nedidactic
+                {
+                    idTransaVeche = 0; idTransa = 0;
+                }
+                else if (codCategoriePost == 3) // cercetare
+                {
+                    idGradGrp = 0; idTransaVeche = 0; idTransa = 0;
+                }
+            }
+
+            // 3) Find the matching REGES function row (FunctieReges lookup)
+            var rec = await db.Set<FunctieReges>()
+                .AsNoTracking()
+                .Where(f =>
+                    f.CodCategoriePost == codCategoriePost &&
+                    f.IdTipFunctie == idTipFunctie &&
+                    (f.IdLegaturaFunctieReges == idLegReges || f.IdLegaturaFunctieReges == null) &&
+                    (f.IdNivelStudii == idNivelStudii || f.IdNivelStudii == null) &&
+                    (f.IdGradProfesionalGrupat == idGradGrp || f.IdGradProfesionalGrupat == null) &&
+                    (f.IdTransaVecheVechimeInv == idTransaVeche || f.IdTransaVecheVechimeInv == null) &&
+                    (f.IdTransaVechimeInv == idTransa || f.IdTransaVechimeInv == null)
+                )
+                .OrderByDescending(f => f.IdLegaturaFunctieReges.HasValue)
+                .ThenByDescending(f => f.IdNivelStudii.HasValue)
+                .ThenByDescending(f => f.IdGradProfesionalGrupat.HasValue)
+                .ThenByDescending(f => f.IdTransaVecheVechimeInv.HasValue)
+                .ThenByDescending(f => f.IdTransaVechimeInv.HasValue)
+                .FirstOrDefaultAsync();
+
+            // We must return a new L153Info even if 'rec' is null, 
+            // because 'k' still contains the other L153 details.
+            if (rec == null)
+            {
+                Debug.WriteLine($"[L153 WARNING] No matching FunctieReges row found for FunctionStatId: {c.FunctionStatId}");
+            }
+
+            // === UPDATED BLOCK ===
+            // Map all fields from FunctieReges ('rec') AND the extra fields from 'k'
+            // into the "Models.Contracts.L153Info" object (which has short names)
+            return new Models.Contracts.L153Info
+            {
+                // Core fields from FunctieReges
+                Anexa = rec?.Anexa,
+                Capitol = rec?.Capitol,
+                Litera = rec?.Litera,
+                Cod = rec?.Cod,
+                Functie = rec?.DenumireFunctieReges,
+                FunctieLegatura = null, // Or map this if you have it
+
+                // Detail fields from the SQL query ('k')
+                Clasif = k.L153AltaFunctieName, // This mapping might be wrong, adjust as needed
+                SpecFunctie = k.L153SpecFunctieCode,
+                Structura = k.L153StructuraCode,
+                SpecStructura = k.L153SpecStructuraCode,
+                GradProf = k.L153GradProfCode,
+                Gradatie = k.L153GradatieCode,
+                AltaFunctieName = k.L153AltaFunctieName,
+                ExplicatieFunctie = k.L153ExplicatieFunctie,
+                AltGradProfText = k.L153AltGradProfText
+            };
+        }
+
+        // Step 0: Build payload from DB (uses exactly your mapper + names, no defaults)
         // Step 0: Build payload from DB (uses exactly your mapper + names, no defaults)
         public async Task<ContractEnvelope> BuildContractPayloadAsync(int idContract)
         {
@@ -1685,6 +1812,41 @@ namespace api_itm.UserControler.Contracts
             if (c == null)
                 throw new InvalidOperationException($"Contract {idContract} not found.");
 
+            // ==================== NEW L153 LOGIC START ====================
+
+            bool aplicaL153 = c.LegalBasisId == 1;
+            DetaliiL153 detaliiL153 = null; // Start as null
+
+            if (aplicaL153)
+            {
+                // 1. Compute ALL L153 fields using the updated function
+                // This returns 'Models.Contracts.L153Info' (short names)
+                var l153Info = await ComputeL153FromRulesAsync(_db, c);
+
+                // 2. Map from l153Info (short names) to detaliiL153 (long names)
+                detaliiL153 = new DetaliiL153
+                {
+                    // Fields from FunctieReges (via l153Info)
+                    AnexaL153 = l153Info.Anexa,
+                    CapitolL153 = l153Info.Capitol,
+                    LiteraL153 = l153Info.Litera,
+                    ClasificareSuplimentaraL153 = l153Info.Cod, // 'Cod' from L153Info maps to this
+                    FunctieL153 = l153Info.Functie,
+
+                    // Fields from joined tables (via l153Info)
+                    // (Mapping short names from l153Info to long names in DetaliiL153)
+                    SpecialitateFunctieL153 = l153Info.SpecFunctie,
+                    StructuraAprobataL153 = l153Info.Structura,
+                    SpecialitateStructuraAprobataL153 = l153Info.SpecStructura,
+                    GradProfesionalL153 = l153Info.GradProf,
+                    GradatieL153 = l153Info.Gradatie,
+                    DenumireAltaFunctieL153 = l153Info.AltaFunctieName,
+                    ExplicatieFunctieL153 = l153Info.ExplicatieFunctie,
+                    AltGradProfesionalL153 = l153Info.AltGradProfText
+                };
+            }
+            // ===================== NEW L153 LOGIC END =====================
+
             // 2) SafeLookup
             async Task<string> SafeLookup(Func<Task<string>> query)
             {
@@ -1694,9 +1856,9 @@ namespace api_itm.UserControler.Contracts
             // 3) Lookups
             var endDateExceptionCode = RegesJson.FixText(await SafeLookup(() =>
                 _db.EndDateExceptions
-                  .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
-                  .Select(e => e.EndDateExceptionCode)
-                  .FirstOrDefaultAsync()));
+                    .Where(e => e.EndDateExceptionId == c.EndDateExceptionId)
+                    .Select(e => e.EndDateExceptionCode)
+                    .FirstOrDefaultAsync()));
 
             Debug.WriteLine($"[DEBUG] Contract {c.IdContract} | EndDateExceptionId={c.EndDateExceptionId} => Code='{endDateExceptionCode}'");
 
@@ -1708,7 +1870,7 @@ namespace api_itm.UserControler.Contracts
             var educationLevelCode = await _db.FunctionsStat
                 .Where(f => f.FunctionStatId == c.FunctionStatId)
                 .Join(_db.EducationLevels, f => f.EducationLevelId, e => e.EducationLevelId,
-                      (f, e) => e.EducationLevelCodeReges)
+                        (f, e) => e.EducationLevelCodeReges)
                 .FirstOrDefaultAsync();
 
             var workingscheduleCode = await _db.WorkScheduleNorm
@@ -1729,16 +1891,16 @@ namespace api_itm.UserControler.Contracts
             Debug.WriteLine("repartizareMunca: " + repartizareMunca);
 
             var repartizare = await _db.WorkTimeAllocation
-              .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
-              .Select(wta => wta.WorkTimeAllocationCode)
-              .FirstOrDefaultAsync(); //ShiftType
+                .Where(wta => wta.WorkTimeAllocationId == c.WorkTimeAllocationId)
+                .Select(wta => wta.WorkTimeAllocationCode)
+                .FirstOrDefaultAsync(); //ShiftType
 
             Debug.WriteLine("repartizare:" + repartizare);
 
             var typeContractRuCode = await _db.TypeContractRu
-             .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
-             .Select(tyr => tyr.TypeContractRuCode)
-             .FirstOrDefaultAsync();//TypeContractRu
+               .Where(tyr => tyr.TypeContractRuId == c.ContractTypeId)
+               .Select(tyr => tyr.TypeContractRuCode)
+               .FirstOrDefaultAsync();//TypeContractRu
 
             var typeContractDurationCode = await ResolveContractTypeDurationCodeAsync(_db, c.DurationTypeId);
 
@@ -1747,16 +1909,16 @@ namespace api_itm.UserControler.Contracts
 
 
             var shiftTypeCode = await _db.ShiftType
-             .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
-             .Select(shift => shift.ShiftTypeCode)
-             .FirstOrDefaultAsync(); //ShiftType
+               .Where(shift => shift.ShiftTypeId == c.ShiftTypeId)
+               .Select(shift => shift.ShiftTypeCode)
+               .FirstOrDefaultAsync(); //ShiftType
 
             Debug.WriteLine("shiftTypeCode" + shiftTypeCode);
 
             var workNormTypeCode = await _db.WorkNormType
-                  .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
-                  .Select(n => n.WorkNormTypeCode)
-                  .FirstOrDefaultAsync();
+                    .Where(n => n.WorkNormTypeId == c.WorkNormTypeId)
+                    .Select(n => n.WorkNormTypeCode)
+                    .FirstOrDefaultAsync();
 
             Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
 
@@ -1774,9 +1936,9 @@ namespace api_itm.UserControler.Contracts
                .FirstOrDefaultAsync();
 
             var worktypelocationtype = await _db.WorkLocationType
-              .Where(WorkLocationType => WorkLocationType.WorkLocationTypeId == c.WorkTypeID)
-              .Select(WorkLocationType => WorkLocationType.WorkLocationTypeCode)
-              .FirstOrDefaultAsync();
+                .Where(WorkLocationType => WorkLocationType.WorkLocationTypeId == c.WorkTypeID)
+                .Select(WorkLocationType => WorkLocationType.WorkLocationTypeCode)
+                .FirstOrDefaultAsync();
 
             // DEBUG: show the exact SQL EF will run
             var wtSql = _db.ContractsRu.AsNoTracking()
@@ -1801,21 +1963,21 @@ namespace api_itm.UserControler.Contracts
                 .FirstOrDefaultAsync();
 
             var versionCor = await _db.RegesCor
-              .Where(cor => cor.Code.ToString() == c.OccupationCode)
-              .Select(cor => cor.Version)   
-              .FirstOrDefaultAsync();
+                .Where(cor => cor.Code.ToString() == c.OccupationCode)
+                .Select(cor => cor.Version)
+                .FirstOrDefaultAsync();
 
             var countyCode = await _db.County
-           .Where(cc => cc.CountyId  == c.CountyID)
-           .Select(cc => cc.CountyCode)   
+           .Where(cc => cc.CountyId == c.CountyID)
+           .Select(cc => cc.CountyCode)
            .FirstOrDefaultAsync();
 
             int? codSiruta = await _db.CountyCity
-          .Where(lo => lo.CountyCityId.ToString() == c.CityId.ToString())
-          .Select(lo => (int?)lo.SirutaCode)
-          .FirstOrDefaultAsync();
+            .Where(lo => lo.CountyCityId.ToString() == c.CityId.ToString())
+            .Select(lo => (int?)lo.SirutaCode)
+            .FirstOrDefaultAsync();
 
-            
+
 
             // Returns null if any hop has no match
             int cityName = await (
@@ -1833,23 +1995,17 @@ namespace api_itm.UserControler.Contracts
                 select ci.SirutaCode
             ).FirstOrDefaultAsync();
 
-            //var typeWorkLocation = await _db.WorkLocationType
-            //   .Where(n => n.WorkLocationTypeId == c.WorkTypeID)
-            //   .Select(n => n.WorkLocationTypeName)
-            //   .FirstOrDefaultAsync();
-
-
             var typeWorkLocationCode = await _db.WorkLocationType
                 .Where(n => n.WorkLocationTypeId == c.WorkTypeID)
                 .Select(n => n.WorkLocationTypeId)
                 .FirstOrDefaultAsync();
 
             var coutyWorkLocation = await _db.County
-             .Where(n => n.CountyId == c.CountyID)
-             .Select(n => n.CountyCode)
-             .FirstOrDefaultAsync();
+               .Where(n => n.CountyId == c.CountyID)
+               .Select(n => n.CountyCode)
+               .FirstOrDefaultAsync();
 
-        
+
             Debug.WriteLine("cityName" + cityName);
 
             Debug.WriteLine("workNormTypeCode" + workNormTypeCode);
@@ -1862,23 +2018,23 @@ namespace api_itm.UserControler.Contracts
 
             // 3b) SPORURI
             var sporRows = await _db.Set<ContractBonuses>()
-       .AsNoTracking()
-       .Where(b => b.IdContract == c.IdContract)
-       .Join(_db.Set<SporType>().AsNoTracking(),
-             b => b.IdSpor,
-             t => t.SporTypeId,
-             (b, t) => new
-             {
-                 b.IdContracteSporuri,
-                 b.IdSpor,
-                 b.ValoareSpor,
-                 b.ValoareSporProcent,
-                 SporName = t.SporName,
-                 SporTypeCode = t.SporTypeCode, // e.g. TipSporAngajator / TipSporPredefinit
-                 RegesId = t.RegesId       // char(36) GUID or null
-             })
-       .OrderBy(x => x.IdContracteSporuri)
-       .ToListAsync();
+               .AsNoTracking()
+               .Where(b => b.IdContract == c.IdContract)
+               .Join(_db.Set<SporType>().AsNoTracking(),
+                   b => b.IdSpor,
+                   t => t.SporTypeId,
+                   (b, t) => new
+                   {
+                       b.IdContracteSporuri,
+                       b.IdSpor,
+                       b.ValoareSpor,
+                       b.ValoareSporProcent,
+                       SporName = t.SporName,
+                       SporTypeCode = t.SporTypeCode, // e.g. TipSporAngajator / TipSporPredefinit
+                       RegesId = t.RegesId        // char(36) GUID or null
+                   })
+               .OrderBy(x => x.IdContracteSporuri)
+               .ToListAsync();
 
 
             var sporuri = new List<SporSalariu>();
@@ -1907,9 +2063,9 @@ namespace api_itm.UserControler.Contracts
             }
 
             // 4) Time window
-            DateTime? startDate = c.StartDate;   // din contracte_ru
-            TimeSpan? startHour = c.StartHour;   // din contracte_ru.ora_inceput
-            TimeSpan? endHour = c.EndHour;     // din contracte_ru.ora_sfarsit
+            DateTime? startDate = c.StartDate;    // din contracte_ru
+            TimeSpan? startHour = c.StartHour;    // din contracte_ru.ora_inceput
+            TimeSpan? endHour = c.EndHour;      // din contracte_ru.ora_sfarsit
 
             DateTime? inceputInterval = (startDate.HasValue && startHour.HasValue)
                 ? startDate.Value.Date + startHour.Value
@@ -1925,9 +2081,10 @@ namespace api_itm.UserControler.Contracts
                             $"EndHour={(endHour.HasValue ? endHour.Value.ToString(@"hh\:mm") : "<null>")} " +
                             $"=> inceputInterval={inceputInterval:yyyy-MM-ddTHH:mm:ss.fff} " +
                             $"sfarsitInterval={sfarsitInterval:yyyy-MM-ddTHH:mm:ss.fff}");
-             
+
             // 5) COR parse
             static int TryParseInt(string? s) => int.TryParse(s, out var n) ? n : 0;
+
 
             // 6) Build payload
             var continut = new ContinutContract
@@ -1955,7 +2112,6 @@ namespace api_itm.UserControler.Contracts
                 Moneda = "RON",
                 NivelStudii = educationLevelCode,
 
-                // 🔧 Only change: omit when empty to satisfy schema
                 SporuriSalariu = (sporuri.Count > 0) ? sporuri : null,
 
                 StareCurenta = new StareCurenta(), // to do // se intoarce populata de Reges
@@ -1975,29 +2131,16 @@ namespace api_itm.UserControler.Contracts
                 TipContract = typeContractRuCode,
                 TipDurata = typeContractDurationCode,
                 TipNorma = workNormTypeCode,
-                TipLocMunca = typeWorkLocation,  
+                TipLocMunca = typeWorkLocation,
                 JudetLocMunca = countyCode,
                 LocalitateLocMunca = (worktypelocationtype == "Fix")
-    ? new Localitate { CodSiruta = cityName }   // cityName is your int SIRUTA (e.g., 54984)
-    : null,
-                AplicaL153 = null, // to do
+                    ? new Localitate { CodSiruta = cityName }    // cityName is your int SIRUTA (e.g., 54984)
+                    : null,
 
-                DetaliiL153 = new DetaliiL153 {
-                    // AnexaL153 = c.L153AnnexCode,
-                    // CapitolL153 = c.L153CapitolCode,
-                    // LiteraL153 = c.L153LiteraCode,
-                    // ClasificareSuplimentaraL153 = c.L153ClasifCode,
-                    // FunctieL153 = c.L153FunctieCode,
-                    // SpecialitateFunctieL153 = c.L153SpecFunctieCode,
-                    // StructuraAprobataL153 = c.L153StructuraCode,
-                    // SpecialitateStructuraAprobataL153 = c.L153SpecStructuraCode,
-                    // GradProfesionalL153 = c.L153GradProfCode,
-                    // GradatieL153 = c.L153GradatieCode,
-                    // DenumireAltaFunctieL153 = c.L153AltaFunctieName,
-                    // ExplicatieFunctieL153 = c.L153ExplicatieFunctie,
-                    // AltGradProfesionalL153 = c.L153AltGradProfText
-                    }
-                };
+                // === ACTIVATED LINES ===
+                AplicaL153 = aplicaL153,
+                DetaliiL153 = detaliiL153 // This will be null if aplicaL153 is false
+            };
 
             var envelope = new ContractEnvelope
             {
@@ -2018,7 +2161,6 @@ namespace api_itm.UserControler.Contracts
             Debug.WriteLine($"Built contract payload for idContract={idContract}: {JsonSerializer.Serialize(envelope, _jsonOpts)}");
             return envelope;
         }
-
         private static async Task<string?> ResolveContractTypeDurationCodeAsync(
     AppDbContext db,
     int? durationTypeId,
@@ -2094,7 +2236,7 @@ namespace api_itm.UserControler.Contracts
         {
             // 0) Build payload exactly as before
             var payload = await BuildContractPayloadAsync(idContract);
-             
+
             // 1) Validate required fields
             bool mustValidate = true;   // RELEASE: always validate
 #if DEBUG
@@ -2200,7 +2342,7 @@ namespace api_itm.UserControler.Contracts
             return SessionState.Tokens.AccessToken;
         }
 
-  
+
         [Conditional("DEBUG")]
         private void ShowJsonPreview(string json)
         {
@@ -2252,8 +2394,10 @@ namespace api_itm.UserControler.Contracts
             }
         }
 
-       
+        private void dgvAddContracts_CellContentClick_1(object sender, DataGridViewCellEventArgs e)
+        {
 
+        }
     }
 
 }

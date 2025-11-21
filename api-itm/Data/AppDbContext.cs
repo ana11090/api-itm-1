@@ -1,7 +1,9 @@
 ﻿using api_itm.Data.Entity.api_itm.Domain.Employees;
 using api_itm.Data.Entity.Ru;
 using api_itm.Data.Entity.Ru.Contracts;
+using api_itm.Data.Entity.Ru.Contracts.api_itm.Data.Entity.Ru.Lookups;
 using api_itm.Data.Entity.Ru.Contracts.ContractsSuspended;
+using api_itm.Data.Entity.Ru.Contracts.ContractsSuspended.Medical;
 using api_itm.Data.Entity.Ru.Contracts.Work;
 using api_itm.Data.Entity.Ru.Disability;
 using api_itm.Data.Entity.Ru.ForginerWorkAuthorization;
@@ -10,6 +12,7 @@ using api_itm.Data.Entity.Ru.Reges;
 using api_itm.Data.Entity.Ru.Salary;
 using api_itm.Data.Entity.Ru.Study;
 using api_itm.Models.Contracts.Envelope;
+using api_itm.Models.View;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
 
@@ -67,7 +70,17 @@ namespace api_itm
 
         public DbSet<ContractRuSuspended> ContractRuSuspended => Set<ContractRuSuspended>(); //ContractRuSuspended
         public DbSet<SuspensionLegalGround> SuspensionLegalGround => Set<SuspensionLegalGround>(); //SuspensionLegalGround
+        public DbSet<MedicalLeaveEntry> MedicalLeaveEntry => Set<MedicalLeaveEntry>(); //SuspensionLegalGround
 
+        public DbSet<FunctieReges> FunctieReges => Set<FunctieReges>(); //FunctieReges, "functiereges"
+        public DbSet<FunctionLeadership> FunctionLeadership => Set<FunctionLeadership>();  //FunctionLeadership, "functie_conducere"
+        public DbSet<StateFunctions> StateFunctions => Set<StateFunctions>();  //StateFunctions, "statfunctii"
+        public DbSet<ProfessionalGrade> ProfessionalGrade => Set<ProfessionalGrade>(); //ProfessionalGrade, "gradprofesional"
+        public DbSet<ServiceFunction> ServiceFunction => Set<ServiceFunction>();
+        public DbSet<CategoryPost> CategoryPost => Set<CategoryPost>(); //CategoryPost
+        public DbSet<Post> Post => Set<Post>();//Post
+
+        public DbSet<L153Keys> L153Keys => Set<L153Keys>(); // in views
         public AppDbContext(DbContextOptions<AppDbContext> options)
             : base(options)
         {
@@ -87,6 +100,8 @@ namespace api_itm
             modelBuilder.Entity<User>()
          .ToTable("utilizator") // PostgreSQL table name
          .HasKey(u => u.IdUser); // C# key
+
+            modelBuilder.Entity<L153Keys>().HasNoKey();
 
             base.OnModelCreating(modelBuilder);
 
